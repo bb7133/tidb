@@ -2218,3 +2218,32 @@ func (s *testPlanSuite) TestWindowFunction(c *C) {
 		c.Assert(ToString(p), Equals, tt.result, comment)
 	}
 }
+
+func (s *testPlanSuite) TestGroupPruning(c *C) {
+	defer testleak.AfterTest(c)()
+	tests := []struct {
+		sql  string
+		best string
+	}{
+		{
+			sql:  "select count(*) from (select sum(a), b from t group by b) tt group by b",
+			best: "DataScan(t)->Aggr(firstrow(test.t.b))->Projection->Projection",
+		},
+	}
+	for i, tt := range tests {
+		comment := Commentf("case:%v sql:%s", i, tt.sql)
+		stmt, err := s.ParseOneStmt(tt.sql, "", "")
+		c.Assert(err, IsNil, comment)
+		Preprocess(s.ctx, stmt, s.is, false)
+		builder := &PlanBuilder{
+			ctx:       MockContext(),
+			is:        s.is,
+			colMapper: make(map[*ast.ColumnNameExpr]int),
+		}
+		p, err := builder.Build(stmt)
+		c.Assert(err, IsNil)
+		p, err = logicalOptimize(builder.optFlag, p.(LogicalPlan))
+		c.Assert(err, IsNil)
+		c.Assert(ToString(p), Equals, tt.best, comment)
+	}
+}

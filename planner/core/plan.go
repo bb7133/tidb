@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/tidb/expression"
@@ -29,18 +31,18 @@ import (
 // It is created from ast.Node first, then optimized by the optimizer,
 // finally used by the executor to create a Cursor which executes the statement.
 type Plan interface {
-	// Get the schema.
+	// Schema the schema ---.
 	Schema() *expression.Schema
-	// Get the ID.
+	// ID gets the ID --.
 	ID() int
-	// Get the ID in explain statement
+	// ExplainID gets the ID in explain statement
 	ExplainID() string
 	// replaceExprColumns replace all the column reference in the plan's expression node.
 	replaceExprColumns(replace map[string]*expression.Column)
 
 	context() sessionctx.Context
 
-	// property.StatsInfo will return the property.StatsInfo for this plan.
+	// statsInfo gets property.StatsInfo for this plan --.
 	statsInfo() *property.StatsInfo
 }
 
@@ -69,6 +71,9 @@ type LogicalPlan interface {
 
 	// PruneColumns prunes the unused columns.
 	PruneColumns([]*expression.Column)
+
+	// PruneGroupBy prunes some groups
+	PruneGroupBy()
 
 	// findBestTask converts the logical plan to the physical plan. It's a new interface.
 	// It is called recursively from the parent to the children to create the result physical plan.
@@ -106,7 +111,7 @@ type LogicalPlan interface {
 	// If the column is not in the schema, returns an error.
 	findColumn(*ast.ColumnName) (*expression.Column, int, error)
 
-	// Get all the children.
+	// Children gets all the children.
 	Children() []LogicalPlan
 
 	// SetChildren sets the children for the plan.
@@ -127,13 +132,13 @@ type PhysicalPlan interface {
 	// ExplainInfo returns operator information to be explained.
 	ExplainInfo() string
 
-	// getChildReqProps gets the required property by child index.
+	// GetChildReqProps gets the required property by child index.
 	GetChildReqProps(idx int) *property.PhysicalProperty
 
 	// StatsCount returns the count of property.StatsInfo for this plan.
 	StatsCount() float64
 
-	// Get all the children.
+	// Children gets all the children.
 	Children() []PhysicalPlan
 
 	// SetChildren sets the children for the plan.
@@ -236,6 +241,13 @@ func (p *baseLogicalPlan) PruneColumns(parentUsedCols []*expression.Column) {
 	p.children[0].PruneColumns(parentUsedCols)
 }
 
+func (p *baseLogicalPlan) PruneGroupBy() {
+	logrus.Infof("DXXXXXXD p(%v) PruneGBK, schema: %v", p.self, p.Schema())
+	for _, child := range p.Children() {
+		child.PruneGroupBy()
+	}
+}
+
 // basePlan implements base Plan interface.
 // Should be used as embedded struct in Plan implementations.
 type basePlan struct {
@@ -253,7 +265,7 @@ func (p *basePlan) ID() int {
 	return p.id
 }
 
-// property.StatsInfo implements the Plan interface.
+// statsInfo implements the Plan interface.
 func (p *basePlan) statsInfo() *property.StatsInfo {
 	return p.stats
 }
