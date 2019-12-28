@@ -305,7 +305,7 @@ var defaultSysVars = []*SysVar{
 	{ScopeGlobal, LogSlowAdminStatements, "0"},
 	{ScopeNone, "innodb_checksums", "ON"},
 	{ScopeNone, "hostname", ServerHostname},
-	{ScopeGlobal | ScopeSession, "auto_increment_offset", "1"},
+	{ScopeGlobal | ScopeSession, AutoIncrementOffset, "1"},
 	{ScopeNone, "ft_stopword_file", "(built-in)"},
 	{ScopeGlobal, "innodb_max_dirty_pages_pct_lwm", "0"},
 	{ScopeGlobal, LogQueriesNotUsingIndexes, "0"},
@@ -988,8 +988,10 @@ const (
 	TransactionReadOnly = "transaction_read_only"
 	// CharacterSetServer is the name of 'character_set_server' system variable.
 	CharacterSetServer = "character_set_server"
-	// AutoIncrementIncrement it the name of 'auto_increment_increment' system variable.
+	// AutoIncrementIncrement is the name of 'auto_increment_increment' system variable.
 	AutoIncrementIncrement = "auto_increment_increment"
+	// AutoIncrementOffset is the name
+	AutoIncrementOffset = "auto_increment_offset"
 	// InitConnect is the name of 'init_connect' system variable.
 	InitConnect = "init_connect"
 	// CollationServer is the name of 'collation_server' variable.

@@ -380,6 +380,10 @@ type SessionVars struct {
 
 	SQLMode mysql.SQLMode
 
+	AutoIncrementIncrement int
+
+	AutoIncrementOffset int
+
 	/* TiDB system variables */
 
 	// SkipUTF8Check check on input value.
@@ -588,6 +592,8 @@ func NewSessionVars() *SessionVars {
 		NetworkFactor:               DefOptNetworkFactor,
 		ScanFactor:                  DefOptScanFactor,
 		DescScanFactor:              DefOptDescScanFactor,
+		AutoIncrementIncrement:      1,
+		AutoIncrementOffset:         0,
 		SeekFactor:                  DefOptSeekFactor,
 		MemoryFactor:                DefOptMemoryFactor,
 		DiskFactor:                  DefOptDiskFactor,
@@ -929,6 +935,10 @@ func (s *SessionVars) SetSystemVar(name string, val string) error {
 		if isAutocommit {
 			s.SetStatusFlag(mysql.ServerStatusInTrans, false)
 		}
+	case AutoIncrementIncrement:
+		s.AutoIncrementIncrement = tidbOptPositiveInt32(val, 1)
+	case AutoIncrementOffset:
+		s.AutoIncrementOffset = tidbOptPositiveInt32(val, 0)
 	case MaxExecutionTime:
 		timeoutMS := tidbOptPositiveInt32(val, 0)
 		s.MaxExecutionTime = uint64(timeoutMS)

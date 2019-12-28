@@ -80,7 +80,7 @@ type Allocator interface {
 	// Alloc allocs N consecutive autoID for table with tableID, returning (min, max] of the allocated autoID batch.
 	// It gets a batch of autoIDs at a time. So it does not need to access storage for each call.
 	// The consecutive feature is used to insert multiple rows in a statement.
-	Alloc(tableID int64, n uint64) (int64, int64, error)
+	Alloc(tableID int64, n uint64, increment int, offset int) (int64, int64, error)
 	// Rebase rebases the autoID base for table with tableID and the new base value.
 	// If allocIDs is true, it will allocate some IDs and save to the cache.
 	// If allocIDs is false, it will not allocate IDs.
@@ -309,7 +309,7 @@ func NewAllocatorsFromTblInfo(store kv.Storage, schemaID int64, tblInfo *model.T
 }
 
 // Alloc implements autoid.Allocator Alloc interface.
-func (alloc *allocator) Alloc(tableID int64, n uint64) (int64, int64, error) {
+func (alloc *allocator) Alloc(tableID int64, n uint64, increment int, offset int) (int64, int64, error) {
 	if tableID == 0 {
 		return 0, 0, errInvalidTableID.GenWithStackByArgs("Invalid tableID")
 	}
@@ -319,13 +319,24 @@ func (alloc *allocator) Alloc(tableID int64, n uint64) (int64, int64, error) {
 	alloc.mu.Lock()
 	defer alloc.mu.Unlock()
 	if alloc.isUnsigned {
-		return alloc.alloc4Unsigned(tableID, n)
+		return alloc.alloc4Unsigned(tableID, n, int64(increment), int64(offset))
 	}
-	return alloc.alloc4Signed(tableID, n)
+	return alloc.alloc4Signed(tableID, n, int64(increment), int64(offset))
 }
 
-func (alloc *allocator) alloc4Signed(tableID int64, n uint64) (int64, int64, error) {
-	n1 := int64(n)
+func calcNeededIDs(base, n, increment, offset int64) int64 {
+	if increment == 1 {
+		return n
+	}
+	nr := (base + increment - offset) / increment
+	nr = nr * increment + offset
+
+	nr += (n - 1) * increment
+	return nr - base
+}
+
+func (alloc *allocator) alloc4Signed(tableID int64, n uint64, increment, offset int64) (int64, int64, error) {
+	n1 := calcNeededIDs(alloc.base, int64(n), increment, offset)
 	// Condition alloc.base+N1 > alloc.end will overflow when alloc.base + N1 > MaxInt64. So need this.
 	if math.MaxInt64-alloc.base <= n1 {
 		return 0, 0, ErrAutoincReadFailed
@@ -378,7 +389,7 @@ func (alloc *allocator) alloc4Signed(tableID int64, n uint64) (int64, int64, err
 	return min, alloc.base, nil
 }
 
-func (alloc *allocator) alloc4Unsigned(tableID int64, n uint64) (int64, int64, error) {
+func (alloc *allocator) alloc4Unsigned(tableID int64, n uint64, increment, offset int64) (int64, int64, error) {
 	n1 := int64(n)
 	// Condition alloc.base+n1 > alloc.end will overflow when alloc.base + n1 > MaxInt64. So need this.
 	if math.MaxUint64-uint64(alloc.base) <= n {
