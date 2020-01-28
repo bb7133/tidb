@@ -10,9 +10,13 @@ For now, TiDB only supports binary collations, this proposal is aimed to provide
 
 ## Background
 
+### Collations
+
 The term "Collation" is defined as the process and function of determining the sorting order of strings of characters, it varies according to language and culture.
 
 Collations are useful when comparing and sorting data. Different languages have different rules for how to order data and how to compare characters. For example, in Swedish, "ö" and "o" are in fact different letters, so they should not be equivalent in a query (`SELECT ... WHERE col LIKE '%o%'`); additionally, Swedish sorting rules place "ö" after "z" in the alphabet. Meanwhile, in German, "ö" is officially considered a separate letter from "o", but it can be sorted along with "o", expanded to sort along with "oe", or sort at the end of the alphabet, depending on the context (dictionary, phonebook, etc.). In French, diacritics never affect comparison or sorting. The issue becomes even more complex with Unicode and certain Unicode encodings (especially UTF-8) where the same logical character can be represented in many different ways, using a variable number of bytes. For example, "ö" in UTF-8 is represented by the byte sequence C3B6, but it can also be represented using the "combining diaeresis" as 6FCC88. These should compare equivalently when using a multibyte-aware collation. Implementing this functionality as far down as possible in the database reduces the number of rows that must be shipped around.
+
+### Current collations in MySQL
 
 In MySQL, collation is treated as an attribute of the character set: for each character set has options for different collations(and one of them is the default collation), every collation belongs to one character set only. The effects of collation are:
   * It defines a total order on all characters of a character set.
@@ -25,11 +29,61 @@ Several collation implementations are described in [this part](https://dev.mysql
   * Per-character table lookup for multibyte character sets, including some of the Unicode collations, for example: `utf8mb4_general_ci`.
     - Full UCA implementation for some Unicode collations, for example: `utf8mb4_900_ai_ci`.
 
+### Current collations in TiDB
+
+For all character sets that are supported, TiDB accepts all of their collations by syntax and stores them as a part of metadata. The real collate-related behaviors are always in binary. For example,
+
+```
+tidb> create table t(a varchar(20) charset utf8mb4 collate utf8mb4_general_ci key);
+Query OK, 0 rows affected
+tidb> show create table t;
++-------+-------------------------------------------------------------+
+| Table | Create Table                                                |
++-------+-------------------------------------------------------------+
+| t     | CREATE TABLE `t` (                                          |
+|       |   `a` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,      |
+|       |   PRIMARY KEY (`a`)                                         |
+|       | ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin |
++-------+-------------------------------------------------------------+
+1 row in set
+tidb> insert into t values ('A');
+Query OK, 1 row affected
+tidb> insert into t values ('a');
+Query OK, 1 row affected // Should report error "Duplicate entry 'a'"
+```
+In the case above, the user creates a column with a case-insensitive collation `utf8mb4_general_ci`. Since the 'real' collation of TiDB is always `utf8mb4_bin`, inserting data into the primary key with "A" and "a" does not lead to an error.
+
+What's more, the collation `utf8mb4_bin` in MySQL is defined with attribute `PAD SPACE`, that is, trailing spaces are ignored when comparison. Currently `utf8mb4_bin` in TiDB is with attribute `NO PAD`:
+
+```
+tidb> create table t1(a varchar(20) charset utf8mb4 collate utf8mb4_bin key);
+Query OK, 0 rows affected
+tidb> insert into t1 values ('a')
+Query OK, 1 row affected
+tidb> insert into t1 values ('a ');
+Query OK, 1 row affected //Should report error "Duplicate entry 'a '"
+```
+
+### Changes to make
+
+Before diving into the details, we should notice that ALL strings in MySQL(and TiDB as well) are with implicit collations, if they're not explicitly specified. So, if we aim to update the collations in TiDB, codes related to strings comparison/lookup should be checked:
+
+  - Encoding/Decoding: update codec related functions in `codec`/`tablecodec` package.
+  - SQL Runtime:
+      + update like/regex/string comparison related functions in `expression` package.
+	  + implement `WEIGHT_STRING()` expression, which returns the sorting hexadecimal value(or `sortKeys`) for a string. This expression will be helpful for debugging collations.
+	  + update the comparisons logic in Join/Aggregation executors in `executor` package.
+  - SQL Optimizer: the optimizer may need to be alignd with the encoding changes in `planner` package.
+  - DDL/Schema: check if the new collation is supported according to the versions of tables/columns, the related codes are in `ddl` and `infoschema` package.
+  - Misc
+      + update string comparison related functions in `util` package.
+      + check if range functions defined in table partitions work with collations.
+
 ## Proposal
 
 ### Collate Interface
 
-There are two basic functions needed for collation `sortKey` calculation:
+There are two basic functions needed for collation comparison:
   * Function that is used to compare two strings according to the given collation.
   * Function that is used to make a memory-comparable `sortKey` corresponding to the given string.
 The interface can be defined as following:
@@ -121,41 +175,6 @@ Should TiDB aim to support all collation of MySQL?
 
 ### Compatibility between TiDB versions
 
-#### Current Status
-
-For all character sets that are supported, TiDB accepts all of their collations by syntax and stores them as a part of metadata. The real collate-related behaviors are always in binary. For example,
-
-```
-tidb> create table t(a varchar(20) charset utf8mb4 collate utf8mb4_general_ci key);
-Query OK, 0 rows affected
-tidb> show create table t;
-+-------+-------------------------------------------------------------+
-| Table | Create Table                                                |
-+-------+-------------------------------------------------------------+
-| t     | CREATE TABLE `t` (                                          |
-|       |   `a` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,      |
-|       |   PRIMARY KEY (`a`)                                         |
-|       | ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin |
-+-------+-------------------------------------------------------------+
-1 row in set
-tidb> insert into t values ('A');
-Query OK, 1 row affected
-tidb> insert into t values ('a');
-Query OK, 1 row affected // Should report error "Duplicate entry 'a'"
-```
-In the case above, the user creates a column with a case-insensitive collation `utf8mb4_general_ci`. Since the 'real' collation of TiDB is always `utf8mb4_bin`, inserting data into the primary key with "A" and "a" does not lead to an error.
-
-What's more, the collation `utf8mb4_bin` in MySQL is defined with attribute `PAD SPACE`, that is, trailing spaces are ignored when comparison. Currently `utf8mb4_bin` in TiDB is with attribute `NO PAD`:
-
-```
-tidb> create table t1(a varchar(20) charset utf8mb4 collate utf8mb4_bin key);
-Query OK, 0 rows affected
-tidb> insert into t1 values ('a')
-Query OK, 1 row affected
-tidb> insert into t1 values ('a ');
-Query OK, 1 row affected //Should report error "Duplicate entry 'a '"
-```
-
 #### Requirements
 
 In this proposal, both of the compatibility issues can be solved in the new version of TiDB, and with the help of the version of metadata in TiDB, we can always indicate if a collation is old(the "fake one") or new(the "real one"). However, here we propose several requirements below and careful considerations are needed to meet them as many as possible:
@@ -206,15 +225,15 @@ Cons: Since existing TiDB cluster can't get new collations enabled, requirement 
 
 ## Implementation
 
-All strings in MySQL are with implicit collations, if they're not explicitly specified, so we may need to check/update all codes related to strings comparison/lookup:
+The following features of the general collation algorithm will be supported:
 
-  - Encoding/Decoding: update codec related functions in `codec`/`tablecodec` package.
-  - SQL Runtime: update like/regex/string comparison related functions in `expression` package.
-  - SQL Optimizer: If option 1 for encodings is chosen, the optimizer should build the extra  table lookup plans.
-  - DDL/Schema: check if the collation is old/new from the versions of tables/columns.
-  - Misc
-      + update string comparison related functions in `util` package.
-      + check if range functions defined in table partitions work with collations.
+  * Primary Weight i.e. character
+  * Secondary Weight i.e. accent
+  * Tertiary Weight i.e. case
+  * PAD / NOPAD
+
+The general procedure of the implementation of collation algorithm is:
+
 
 ### Collations in TiKV
 
@@ -239,5 +258,52 @@ Further, a collation should not need to be a property of a column, it could rath
 
 - https://github.com/pingcap/tidb/issues/222
 - https://github.com/pingcap/tidb/issues/1161
+- https://github.com/pingcap/tidb/issues/3580
 - https://github.com/pingcap/tidb/issues/7519
 
+package main    
+    
+import (    
+    "strings"    
+    "testing"    
+    "unicode/utf8"    
+    
+    "golang.org/x/text/collate"    
+    "golang.org/x/text/language"    
+)    
+    
+func weightString(str string) int {    
+    weight := 0    
+    for len(str) > 0 {    
+        r, size := utf8.DecodeRuneInString(str)    
+        if r == utf8.RuneError {    
+            return 0    
+        }    
+        str = str[size:]    
+        weight += 1    
+    }    
+    return weight    
+}    
+    
+func BenchmarkGoCollations(b *testing.B) {    
+    col := collate.New(    
+        language.English,    
+        collate.IgnoreDiacritics,    
+        collate.IgnoreCase)    
+    
+    for i := 0; i < b.N; i++ {    
+        col.CompareString("cAfe", "café")    
+    }    
+}    
+    
+func BenchmarkWeight(b *testing.B) {    
+    for i := 0; i < b.N; i++ {    
+        _ = weightString("cAfe") < weightString("café")    
+    }    
+}    
+    
+func BenchmarkToLower(b *testing.B) {    
+    for i := 0; i < b.N; i++ {    
+        _ = strings.ToLower("cAfe") < strings.ToLower("café")    
+    }    
+}
