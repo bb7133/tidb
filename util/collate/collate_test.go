@@ -129,17 +129,6 @@ func (s *testCollateSuite) TestGeneralCICollator(c *C) {
 	testKeyTable(keyTable, "utf8mb4_general_ci", c)
 }
 
-func (s *testCollateSuite) TestSetNewCollateEnabled(c *C) {
-	SetNewCollationEnabled(false)
-	c.Assert(NewCollationEnabled(), Equals, false)
-	// It can be set only once.
-	SetNewCollationEnabled(true)
-	c.Assert(NewCollationEnabled(), Equals, false)
-
-	SetNewCollationEnabledForTest(true)
-	c.Assert(NewCollationEnabled(), Equals, true)
-}
-
 func (s *testCollateSuite) TestGetCollator(c *C) {
 	defer testleak.AfterTest(c)()
 	SetNewCollationEnabledForTest(true)
