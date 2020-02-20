@@ -163,6 +163,8 @@ func buildMemTableReader(us *UnionScanExec, tblReader *TableReaderExecutor) *mem
 			Tp:         int32(col.Tp),
 			Flag:       int32(col.Flag),
 			IsPKHandle: us.table.Meta().PKIsHandle && mysql.HasPriKeyFlag(col.Flag),
+			Collation:  col.Collate,
+			Flen:       col.Flen,
 		})
 	}
 
@@ -413,6 +415,8 @@ func (m *memIndexLookUpReader) getMemRows() ([][]types.Datum, error) {
 			Tp:         int32(col.Tp),
 			Flag:       int32(col.Flag),
 			IsPKHandle: m.table.Meta().PKIsHandle && mysql.HasPriKeyFlag(col.Flag),
+			Collation:  col.Collate,
+			Flen:       col.Flen,
 		})
 	}
 	rd := rowcodec.NewByteDecoder(colInfos, -1, nil, nil)

@@ -13,6 +13,7 @@
 
 package expression
 
+import "C"
 import (
 	"math"
 
@@ -567,7 +568,7 @@ func (b *builtinGreatestStringSig) evalString(row chunk.Row) (max string, isNull
 		if isNull || err != nil {
 			return max, isNull, err
 		}
-		if types.CompareString(v, max) > 0 {
+		if types.CompareString(v, max, b.tp.Collate) > 0 {
 			max = v
 		}
 	}
@@ -766,7 +767,7 @@ func (b *builtinLeastStringSig) evalString(row chunk.Row) (min string, isNull bo
 		if isNull || err != nil {
 			return min, isNull, err
 		}
-		if types.CompareString(v, min) < 0 {
+		if types.CompareString(v, min, b.tp.Collate) < 0 {
 			min = v
 		}
 	}
@@ -1044,7 +1045,7 @@ func GetAccurateCmpType(lhs, rhs Expression) types.EvalType {
 }
 
 // GetCmpFunction get the compare function according to two arguments.
-func GetCmpFunction(lhs, rhs Expression) CompareFunc {
+func GetCmpFunction(lhs, rhs Expression, retTp *types.FieldType) CompareFunc {
 	switch GetAccurateCmpType(lhs, rhs) {
 	case types.ETInt:
 		return CompareInt
@@ -1053,7 +1054,8 @@ func GetCmpFunction(lhs, rhs Expression) CompareFunc {
 	case types.ETDecimal:
 		return CompareDecimal
 	case types.ETString:
-		return CompareString
+		cmp := cmpString{collation: retTp.Collate}
+		return cmp.cmp
 	case types.ETDuration:
 		return CompareDuration
 	case types.ETDatetime, types.ETTimestamp:
@@ -1519,7 +1521,7 @@ func (b *builtinLTStringSig) Clone() builtinFunc {
 }
 
 func (b *builtinLTStringSig) evalInt(row chunk.Row) (val int64, isNull bool, err error) {
-	return resOfLT(CompareString(b.ctx, b.args[0], b.args[1], row, row))
+	return resOfLT(CompareString(b.ctx, b.args[0], b.args[1], row, row, b.tp))
 }
 
 type builtinLTDurationSig struct {
@@ -1617,7 +1619,7 @@ func (b *builtinLEStringSig) Clone() builtinFunc {
 }
 
 func (b *builtinLEStringSig) evalInt(row chunk.Row) (val int64, isNull bool, err error) {
-	return resOfLE(CompareString(b.ctx, b.args[0], b.args[1], row, row))
+	return resOfLE(CompareString(b.ctx, b.args[0], b.args[1], row, row, b.tp))
 }
 
 type builtinLEDurationSig struct {
@@ -1715,7 +1717,7 @@ func (b *builtinGTStringSig) Clone() builtinFunc {
 }
 
 func (b *builtinGTStringSig) evalInt(row chunk.Row) (val int64, isNull bool, err error) {
-	return resOfGT(CompareString(b.ctx, b.args[0], b.args[1], row, row))
+	return resOfGT(CompareString(b.ctx, b.args[0], b.args[1], row, row, b.tp))
 }
 
 type builtinGTDurationSig struct {
@@ -1813,7 +1815,7 @@ func (b *builtinGEStringSig) Clone() builtinFunc {
 }
 
 func (b *builtinGEStringSig) evalInt(row chunk.Row) (val int64, isNull bool, err error) {
-	return resOfGE(CompareString(b.ctx, b.args[0], b.args[1], row, row))
+	return resOfGE(CompareString(b.ctx, b.args[0], b.args[1], row, row, b.tp))
 }
 
 type builtinGEDurationSig struct {
@@ -1911,7 +1913,7 @@ func (b *builtinEQStringSig) Clone() builtinFunc {
 }
 
 func (b *builtinEQStringSig) evalInt(row chunk.Row) (val int64, isNull bool, err error) {
-	return resOfEQ(CompareString(b.ctx, b.args[0], b.args[1], row, row))
+	return resOfEQ(CompareString(b.ctx, b.args[0], b.args[1], row, row, b.tp))
 }
 
 type builtinEQDurationSig struct {
@@ -2009,7 +2011,7 @@ func (b *builtinNEStringSig) Clone() builtinFunc {
 }
 
 func (b *builtinNEStringSig) evalInt(row chunk.Row) (val int64, isNull bool, err error) {
-	return resOfNE(CompareString(b.ctx, b.args[0], b.args[1], row, row))
+	return resOfNE(CompareString(b.ctx, b.args[0], b.args[1], row, row, b.tp))
 }
 
 type builtinNEDurationSig struct {
@@ -2189,7 +2191,7 @@ func (b *builtinNullEQStringSig) evalInt(row chunk.Row) (val int64, isNull bool,
 		res = 1
 	case isNull0 != isNull1:
 		break
-	case types.CompareString(arg0, arg1) == 0:
+	case types.CompareString(arg0, arg1, b.tp.Collate) == 0:
 		res = 1
 	}
 	return res, false, nil
@@ -2420,8 +2422,11 @@ func CompareInt(sctx sessionctx.Context, lhsArg, rhsArg Expression, lhsRow, rhsR
 	return int64(res), false, nil
 }
 
-// CompareString compares two strings.
-func CompareString(sctx sessionctx.Context, lhsArg, rhsArg Expression, lhsRow, rhsRow chunk.Row) (int64, bool, error) {
+type cmpString struct {
+	collation string
+}
+
+func (c *cmpString) cmp(sctx sessionctx.Context, lhsArg, rhsArg Expression, lhsRow, rhsRow chunk.Row) (int64, bool, error) {
 	arg0, isNull0, err := lhsArg.EvalString(sctx, lhsRow)
 	if err != nil {
 		return 0, true, err
@@ -2435,7 +2440,25 @@ func CompareString(sctx sessionctx.Context, lhsArg, rhsArg Expression, lhsRow, r
 	if isNull0 || isNull1 {
 		return compareNull(isNull0, isNull1), true, nil
 	}
-	return int64(types.CompareString(arg0, arg1)), false, nil
+	return int64(types.CompareString(arg0, arg1, c.collation)), false, nil
+}
+
+// CompareString compares two strings.
+func CompareString(sctx sessionctx.Context, lhsArg, rhsArg Expression, lhsRow, rhsRow chunk.Row, retTp *types.FieldType) (int64, bool, error) {
+	arg0, isNull0, err := lhsArg.EvalString(sctx, lhsRow)
+	if err != nil {
+		return 0, true, err
+	}
+
+	arg1, isNull1, err := rhsArg.EvalString(sctx, rhsRow)
+	if err != nil {
+		return 0, true, err
+	}
+
+	if isNull0 || isNull1 {
+		return compareNull(isNull0, isNull1), true, nil
+	}
+	return int64(types.CompareString(arg0, arg1, retTp.Collate)), false, nil
 }
 
 // CompareReal compares two float-point values.

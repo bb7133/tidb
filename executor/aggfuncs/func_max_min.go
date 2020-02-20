@@ -396,6 +396,7 @@ func (e *maxMin4Decimal) MergePartialResult(sctx sessionctx.Context, src, dst Pa
 
 type maxMin4String struct {
 	baseMaxMinAggFunc
+	retTp *types.FieldType
 }
 
 func (e *maxMin4String) AllocPartialResult() PartialResult {
@@ -438,7 +439,7 @@ func (e *maxMin4String) UpdatePartialResult(sctx sessionctx.Context, rowsInGroup
 			p.isNull = false
 			continue
 		}
-		cmp := types.CompareString(input, p.val)
+		cmp := types.CompareString(input, p.val, e.retTp.Collate)
 		if e.isMax && cmp == 1 || !e.isMax && cmp == -1 {
 			p.val = stringutil.Copy(input)
 		}
@@ -455,7 +456,7 @@ func (e *maxMin4String) MergePartialResult(sctx sessionctx.Context, src, dst Par
 		*p2 = *p1
 		return nil
 	}
-	cmp := types.CompareString(p1.val, p2.val)
+	cmp := types.CompareString(p1.val, p2.val, e.retTp.Collate)
 	if e.isMax && cmp > 0 || !e.isMax && cmp < 0 {
 		p2.val, p2.isNull = p1.val, false
 	}

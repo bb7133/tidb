@@ -455,7 +455,7 @@ func getColDefaultValueFromNil(ctx sessionctx.Context, col *model.ColumnInfo) (t
 		if err != nil {
 			return types.Datum{}, err
 		}
-		return types.NewMysqlEnumDatum(defEnum), nil
+		return types.NewCollateMysqlEnumDatum(defEnum, col.Collate, col.Flen), nil
 	}
 	if mysql.HasAutoIncrementFlag(col.Flag) {
 		// Auto increment column doesn't has default value and we should not return error.
@@ -511,9 +511,9 @@ func GetZeroValue(col *model.ColumnInfo) types.Datum {
 	case mysql.TypeBit:
 		d.SetMysqlBit(types.ZeroBinaryLiteral)
 	case mysql.TypeSet:
-		d.SetMysqlSet(types.Set{})
+		d.SetMysqlSet(types.Set{}, col.Collate, col.Flen)
 	case mysql.TypeEnum:
-		d.SetMysqlEnum(types.Enum{})
+		d.SetMysqlEnum(types.Enum{}, col.Collate, col.Flen)
 	case mysql.TypeJSON:
 		d.SetMysqlJSON(json.CreateBinary(nil))
 	}
