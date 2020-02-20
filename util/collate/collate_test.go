@@ -133,11 +133,6 @@ func (s *testCollateSuite) TestGeneralCICollator(c *C) {
 
 func (s *testCollateSuite) TestSetNewCollateEnabled(c *C) {
 	defer SetNewCollationEnabledForTest(false)
-	SetNewCollationEnabled(false)
-	c.Assert(NewCollationEnabled(), Equals, false)
-	// It can be set only once.
-	SetNewCollationEnabled(true)
-	c.Assert(NewCollationEnabled(), Equals, false)
 
 	SetNewCollationEnabledForTest(true)
 	c.Assert(NewCollationEnabled(), Equals, true)

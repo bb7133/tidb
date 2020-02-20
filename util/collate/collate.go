@@ -15,14 +15,12 @@ package collate
 
 import (
 	"strings"
-	"sync"
 )
 
 var (
 	collatorMap         map[string]Collator
 	collatorIDMap       map[int]Collator
 	newCollationEnabled bool
-	setCollationOnce    sync.Once
 )
 
 // CollatorOption is the option of collator.
@@ -44,11 +42,9 @@ type Collator interface {
 	Key(str string, opt CollatorOption) []byte
 }
 
-// SetNewCollationEnabled sets if the new collation are enabled.
-func SetNewCollationEnabled(flag bool) {
-	setCollationOnce.Do(func() {
-		SetNewCollationEnabledForTest(flag)
-	})
+// EnableNewCollations enables the new collation.
+func EnableNewCollations() {
+	SetNewCollationEnabledForTest(true)
 }
 
 // SetNewCollationEnabledForTest sets if the new collation are enabled in test.
