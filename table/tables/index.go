@@ -155,7 +155,7 @@ func TruncateIndexValuesIfNeeded(tblInfo *model.TableInfo, idxInfo *model.IndexI
 					rs := bytes.Runes(colValue)
 					truncateStr := string(rs[:ic.Length])
 					// truncate value and limit its length
-					v.SetString(truncateStr)
+					v.SetString(truncateStr, tblInfo.Columns[ic.Offset].Collate, tblInfo.Columns[ic.Offset].Flen)
 					if origKind == types.KindBytes {
 						v.SetBytes(v.GetBytes())
 					}
@@ -164,7 +164,7 @@ func TruncateIndexValuesIfNeeded(tblInfo *model.TableInfo, idxInfo *model.IndexI
 				// truncate value and limit its length
 				v.SetBytes(colValue[:ic.Length])
 				if origKind == types.KindString {
-					v.SetString(v.GetString())
+					v.SetString(v.GetString(), tblInfo.Columns[ic.Offset].Collate, tblInfo.Columns[ic.Offset].Flen)
 				}
 			}
 		}
