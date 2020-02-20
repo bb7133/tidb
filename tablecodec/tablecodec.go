@@ -659,34 +659,26 @@ func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleSt
 	}
 
 	tailLen := value[0]
-	if tailLen == 0 && len(value) == 1 {
-		// No string in non-unique index
-		if handleExists(hdStatus) {
-			resultValues = append(resultValues, b)
-		}
-	} else if tailLen == 0 {
-		// string in non-unique index
-		resultValues, err = cutIndexValue(value, colsLen)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if handleExists(hdStatus) {
-			resultValues = append(resultValues, b)
-		}
-	} else if len(value) == 8 {
-		// No string in unique index
-		if handleExists(hdStatus) {
-			handleBytes, err := decodeHandleByStatus(value[len(value)-8:], hdStatus)
+	if tailLen == 0 {
+		// In non-unique index.
+		if len(value) != 1 {
+			//  We need to get the restored indexed values.
+			resultValues, err = cutIndexValue(value, colsLen)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			resultValues = append(resultValues, handleBytes)
+		}
+		if handleExists(hdStatus) {
+			resultValues = append(resultValues, b)
 		}
 	} else {
-		// string in unique index
-		resultValues, err = cutIndexValue(value, colsLen)
-		if err != nil {
-			return nil, errors.Trace(err)
+		// In unique index.
+		if len(value) != 9 {
+			//  We need to get the restored indexed values.
+			resultValues, err = cutIndexValue(value, colsLen)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 		if handleExists(hdStatus) {
 			handleBytes, err := decodeHandleByStatus(value[len(value)-8:], hdStatus)
@@ -706,10 +698,10 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 	}
 	if len(b) > 0 {
 		// non-unique index
-		if hdStatus != HandleNotExists {
+		if handleExists(hdStatus) {
 			resultValues = append(resultValues, b)
 		}
-	} else if hdStatus != HandleNotExists {
+	} else if handleExists(hdStatus) {
 		// unique index
 		handleBytes, err := decodeHandleByStatus(value, hdStatus)
 		if err != nil {
@@ -720,42 +712,11 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 	return resultValues, nil
 }
 
-//func testdecodeIndexKV(key, value []byte, colsLen int, pkStatus HandleStatus) ([][]byte, error) {
-//	values, b, err := CutIndexKeyNew(key, colsLen)
-//	if err != nil {
-//		return nil, errors.Trace(err)
-//	}
-//	if len(b) > 0 {
-//		if pkStatus != HandleNotExists {
-//			values = append(values, b)
-//		}
-//	} else if pkStatus != HandleNotExists {
-//		handle, err := DecodeIndexValueAsHandle(value)
-//		if err != nil {
-//			return nil, errors.Trace(err)
-//		}
-//		var handleDatum types.Datum
-//		if pkStatus == HandleIsUnsigned {
-//			handleDatum = types.NewUintDatum(uint64(handle))
-//		} else {
-//			handleDatum = types.NewIntDatum(handle)
-//		}
-//		handleBytes := make([]byte, 0, 8)
-//		handleBytes, err = codec.EncodeValue(nil, handleBytes, handleDatum)
-//		if err != nil {
-//			return nil, errors.Trace(err)
-//		}
-//		values = append(values, handleBytes)
-//	}
-//	return values, nil
-//}
-
 // DecodeIndexKV uses to decode index key values.
 func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
 	if collate.NewCollationEnabled() {
 		return decodeIndexKvNewCollation(key, value, colsLen, hdStatus)
 	}
-	//return testdecodeIndexKV(key, value, colsLen, hdStatus)
 	return decodeIndexKvOldCollation(key, value, colsLen, hdStatus)
 }
 
