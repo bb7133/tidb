@@ -84,6 +84,7 @@ func (s *testCollateSuite) TestBinCollator(c *C) {
 func (s *testCollateSuite) TestBinPaddingCollator(c *C) {
 	defer testleak.AfterTest(c)()
 	SetNewCollationEnabledForTest(true)
+	defer SetNewCollationEnabledForTest(false)
 	compareTable := []compareTable{
 		{"a", "b", -1},
 		{"a", "A", 1},
@@ -108,6 +109,7 @@ func (s *testCollateSuite) TestBinPaddingCollator(c *C) {
 func (s *testCollateSuite) TestGeneralCICollator(c *C) {
 	defer testleak.AfterTest(c)()
 	SetNewCollationEnabledForTest(true)
+	defer SetNewCollationEnabledForTest(false)
 	compareTable := []compareTable{
 		{"a", "b", -1},
 		{"a", "A", 0},
@@ -130,6 +132,7 @@ func (s *testCollateSuite) TestGeneralCICollator(c *C) {
 }
 
 func (s *testCollateSuite) TestSetNewCollateEnabled(c *C) {
+	defer SetNewCollationEnabledForTest(false)
 	SetNewCollationEnabled(false)
 	c.Assert(NewCollationEnabled(), Equals, false)
 	// It can be set only once.
@@ -143,6 +146,7 @@ func (s *testCollateSuite) TestSetNewCollateEnabled(c *C) {
 func (s *testCollateSuite) TestGetCollator(c *C) {
 	defer testleak.AfterTest(c)()
 	SetNewCollationEnabledForTest(true)
+	defer SetNewCollationEnabledForTest(false)
 	c.Assert(GetCollator("binary"), FitsTypeOf, &binCollator{})
 	c.Assert(GetCollator("utf8mb4_bin"), FitsTypeOf, &binPaddingCollator{})
 	c.Assert(GetCollator("utf8_bin"), FitsTypeOf, &binPaddingCollator{})

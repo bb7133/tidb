@@ -16,6 +16,7 @@ package tablecodec
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/pingcap/tidb/util/collate"
 	"math"
 	"time"
 
@@ -599,47 +600,163 @@ func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err erro
 	return
 }
 
-// PrimaryKeyStatus is the primary key column status.
-type PrimaryKeyStatus int
+// cutIndexValue cuts encoded index value into bytes slices.
+// This function is used only when NewCollationEnabled is true.
+func cutIndexValue(value []byte, length int) (values [][]byte, err error) {
+	// ignore tailLen
+	b := value[1:]
+	values = make([][]byte, 0, length)
+	for i := 0; i < length; i++ {
+		var val []byte
+		val, b, err = codec.CutOne(b)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		values = append(values, val)
+	}
+	return values, nil
+}
+
+// HandleStatus is the handle status in index.
+type HandleStatus int
 
 const (
-	// PrimaryKeyNotExists means no need to decode primary key column value when DecodeIndexKV.
-	PrimaryKeyNotExists PrimaryKeyStatus = iota
-	// PrimaryKeyIsSigned means decode primary key column value as int64 when DecodeIndexKV.
-	PrimaryKeyIsSigned
-	// PrimaryKeyIsUnsigned means decode primary key column value as uint64 when DecodeIndexKV.
-	PrimaryKeyIsUnsigned
+	// HandleNotExists means no need to decode handle value when DecodeIndexKV.
+	HandleNotExists HandleStatus = iota
+	// HandleIsSigned means decode handle value as int64 when DecodeIndexKV.
+	HandleIsSigned
+	// HandleIsUnsigned means decode handle value as uint64 when DecodeIndexKV.
+	HandleIsUnsigned
 )
 
-// DecodeIndexKV uses to decode index key values.
-func DecodeIndexKV(key, value []byte, colsLen int, pkStatus PrimaryKeyStatus) ([][]byte, error) {
-	values, b, err := CutIndexKeyNew(key, colsLen)
+func handleExists(hdStatus HandleStatus) bool {
+	return hdStatus != HandleNotExists
+}
+
+func decodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error) {
+	handle, err := DecodeIndexValueAsHandle(value)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	var handleDatum types.Datum
+	if hdStatus == HandleIsUnsigned {
+		handleDatum = types.NewUintDatum(uint64(handle))
+	} else {
+		handleDatum = types.NewIntDatum(handle)
+	}
+	handleBytes := make([]byte, 0, 8)
+	handleBytes, err = codec.EncodeValue(nil, handleBytes, handleDatum)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return handleBytes, nil
+}
+
+func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
+	resultValues, b, err := CutIndexKeyNew(key, colsLen)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	tailLen := value[0]
+	if tailLen == 0 && len(value) == 1 {
+		// No string in non-unique index
+		if handleExists(hdStatus) {
+			resultValues = append(resultValues, b)
+		}
+	} else if tailLen == 0 {
+		// string in non-unique index
+		resultValues, err = cutIndexValue(value, colsLen)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if handleExists(hdStatus) {
+			resultValues = append(resultValues, b)
+		}
+	} else if len(value) == 8 {
+		// No string in unique index
+		if handleExists(hdStatus) {
+			handleBytes, err := decodeHandleByStatus(value[len(value)-8:], hdStatus)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			resultValues = append(resultValues, handleBytes)
+		}
+	} else {
+		// string in unique index
+		resultValues, err = cutIndexValue(value, colsLen)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if handleExists(hdStatus) {
+			handleBytes, err := decodeHandleByStatus(value[len(value)-8:], hdStatus)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			resultValues = append(resultValues, handleBytes)
+		}
+	}
+	return resultValues, nil
+}
+
+func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
+	resultValues, b, err := CutIndexKeyNew(key, colsLen)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	if len(b) > 0 {
-		if pkStatus != PrimaryKeyNotExists {
-			values = append(values, b)
+		// non-unique index
+		if hdStatus != HandleNotExists {
+			resultValues = append(resultValues, b)
 		}
-	} else if pkStatus != PrimaryKeyNotExists {
-		handle, err := DecodeIndexValueAsHandle(value)
+	} else if hdStatus != HandleNotExists {
+		// unique index
+		handleBytes, err := decodeHandleByStatus(value, hdStatus)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		var handleDatum types.Datum
-		if pkStatus == PrimaryKeyIsUnsigned {
-			handleDatum = types.NewUintDatum(uint64(handle))
-		} else {
-			handleDatum = types.NewIntDatum(handle)
-		}
-		handleBytes := make([]byte, 0, 8)
-		handleBytes, err = codec.EncodeValue(nil, handleBytes, handleDatum)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		values = append(values, handleBytes)
+		resultValues = append(resultValues, handleBytes)
 	}
-	return values, nil
+	return resultValues, nil
+}
+
+//func testdecodeIndexKV(key, value []byte, colsLen int, pkStatus HandleStatus) ([][]byte, error) {
+//	values, b, err := CutIndexKeyNew(key, colsLen)
+//	if err != nil {
+//		return nil, errors.Trace(err)
+//	}
+//	if len(b) > 0 {
+//		if pkStatus != HandleNotExists {
+//			values = append(values, b)
+//		}
+//	} else if pkStatus != HandleNotExists {
+//		handle, err := DecodeIndexValueAsHandle(value)
+//		if err != nil {
+//			return nil, errors.Trace(err)
+//		}
+//		var handleDatum types.Datum
+//		if pkStatus == HandleIsUnsigned {
+//			handleDatum = types.NewUintDatum(uint64(handle))
+//		} else {
+//			handleDatum = types.NewIntDatum(handle)
+//		}
+//		handleBytes := make([]byte, 0, 8)
+//		handleBytes, err = codec.EncodeValue(nil, handleBytes, handleDatum)
+//		if err != nil {
+//			return nil, errors.Trace(err)
+//		}
+//		values = append(values, handleBytes)
+//	}
+//	return values, nil
+//}
+
+// DecodeIndexKV uses to decode index key values.
+func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
+	if collate.NewCollationEnabled() {
+		return decodeIndexKvNewCollation(key, value, colsLen, hdStatus)
+	}
+	//return testdecodeIndexKV(key, value, colsLen, hdStatus)
+	return decodeIndexKvOldCollation(key, value, colsLen, hdStatus)
 }
 
 // DecodeIndexHandle uses to decode the handle from index key/value.

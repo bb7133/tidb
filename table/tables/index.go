@@ -17,6 +17,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/util/collate"
 	"io"
 	"unicode/utf8"
 
@@ -95,9 +97,20 @@ func (c *indexIter) Next() (val []types.Datum, h int64, err error) {
 
 // index is the data structure for index data in the KV store.
 type index struct {
-	idxInfo *model.IndexInfo
-	tblInfo *model.TableInfo
-	prefix  kv.Key
+	idxInfo       *model.IndexInfo
+	tblInfo       *model.TableInfo
+	prefix        kv.Key
+	containString bool
+}
+
+func (c *index) checkContainString() bool {
+	for _, idxCol := range c.idxInfo.Columns {
+		col := c.tblInfo.Columns[idxCol.Offset]
+		if types.EvalType(col.Tp) == types.ETString && !mysql.HasBinaryFlag(col.Flag) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewIndex builds a new Index object.
@@ -107,6 +120,9 @@ func NewIndex(physicalID int64, tblInfo *model.TableInfo, indexInfo *model.Index
 		tblInfo: tblInfo,
 		// The prefix can't encode from tblInfo.ID, because table partition may change the id to partition id.
 		prefix: tablecodec.EncodeTableIndexPrefix(physicalID, indexInfo.ID),
+	}
+	if collate.NewCollationEnabled() {
+		index.containString = index.checkContainString()
 	}
 	return index
 }
@@ -159,7 +175,7 @@ func TruncateIndexValuesIfNeeded(tblInfo *model.TableInfo, idxInfo *model.IndexI
 
 // GenIndexKey generates storage key for index values. Returned distinct indicates whether the
 // indexed values should be distinct in storage (i.e. whether handle is encoded in the key).
-func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.Datum, h int64, buf []byte) (key []byte, distinct bool, err error) {
+func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.Datum, h int64, buf []byte) (key []byte, value []byte, distinct bool, err error) {
 	if c.idxInfo.Unique {
 		// See https://dev.mysql.com/doc/refman/5.7/en/create-index.html
 		// A UNIQUE index creates a constraint such that all values in the index must be distinct.
@@ -177,6 +193,12 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 	// For string columns, indexes can be created using only the leading part of column values,
 	// using col_name(length) syntax to specify an index prefix length.
 	indexedValues = TruncateIndexValuesIfNeeded(c.tblInfo, c.idxInfo, indexedValues)
+	if collate.NewCollationEnabled() && c.containString {
+		value, err = codec.EncodeValue(sc, make([]byte, 0, len(indexedValues)*9), indexedValues...)
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
 	key = c.getIndexKeyBuf(buf, len(c.prefix)+len(indexedValues)*9+9)
 	key = append(key, []byte(c.prefix)...)
 	key, err = codec.EncodeKey(sc, key, indexedValues...)
@@ -184,7 +206,7 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 		key, err = codec.EncodeKey(sc, key, types.NewDatum(h))
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	return
 }
@@ -200,7 +222,7 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	vars := sctx.GetSessionVars()
 	writeBufs := vars.GetWriteStmtBufs()
 	skipCheck := vars.StmtCtx.BatchCheck
-	key, distinct, err := c.GenIndexKey(vars.StmtCtx, indexedValues, h, writeBufs.IndexKeyBuf)
+	key, indexedValue, distinct, err := c.GenIndexKey(vars.StmtCtx, indexedValues, h, writeBufs.IndexKeyBuf)
 	if err != nil {
 		return 0, err
 	}
@@ -222,25 +244,41 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 
 	// save the key buffer to reuse.
 	writeBufs.IndexKeyBuf = key
-	if !distinct {
-		// non-unique index doesn't need store value, write a '0' to reduce space
-		value := []byte{'0'}
-		if opt.Untouched {
-			value[0] = kv.UnCommitIndexKVFlag
+	var idxVal []byte
+	if collate.NewCollationEnabled() {
+		idxVal = make([]byte, 1+len(indexedValues))
+		copy(idxVal[1:], indexedValue)
+		tailLen := 0
+		if distinct {
+			tailLen += 8
+			idxVal = append(idxVal, EncodeHandle(h)...)
 		}
-		err = rm.Set(key, value)
-		return 0, err
+		if opt.Untouched {
+			// If index is untouched and fetch here means the key is exists in TiKV, but not in txn mem-buffer,
+			// then should also write the untouched index key/value to mem-buffer to make sure the data
+			// is consistent with the index in txn mem-buffer.
+			tailLen += 1
+			idxVal = append(idxVal, kv.UnCommitIndexKVFlag)
+		}
+		idxVal[0] = byte(tailLen)
+	} else {
+		idxVal = make([]byte, 0)
+		if distinct {
+			idxVal = EncodeHandle(h)
+		}
+		if opt.Untouched {
+			// If index is untouched and fetch here means the key is exists in TiKV, but not in txn mem-buffer,
+			// then should also write the untouched index key/value to mem-buffer to make sure the data
+			// is consistent with the index in txn mem-buffer.
+			idxVal = append(idxVal, kv.UnCommitIndexKVFlag)
+		}
+		if len(idxVal) == 0 {
+			idxVal = []byte{'0'}
+		}
 	}
 
-	if skipCheck || opt.Untouched {
-		value := EncodeHandle(h)
-		// If index is untouched and fetch here means the key is exists in TiKV, but not in txn mem-buffer,
-		// then should also write the untouched index key/value to mem-buffer to make sure the data
-		// is consistent with the index in txn mem-buffer.
-		if opt.Untouched {
-			value = append(value, kv.UnCommitIndexKVFlag)
-		}
-		err = rm.Set(key, value)
+	if !distinct || skipCheck || opt.Untouched {
+		err = rm.Set(key, idxVal)
 		return 0, err
 	}
 
@@ -254,11 +292,12 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 		ctx = context.TODO()
 	}
 
-	var value []byte
-	value, err = rm.Get(ctx, key)
-	if kv.IsErrNotFound(err) {
-		v := EncodeHandle(h)
-		err = rm.Set(key, v)
+	value, err := rm.Get(ctx, key)
+	if err != nil {
+		if kv.IsErrNotFound(err) {
+			err = rm.Set(key, idxVal)
+			return 0, err
+		}
 		return 0, err
 	}
 
@@ -271,7 +310,7 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 
 // Delete removes the entry for handle h and indexdValues from KV index.
 func (c *index) Delete(sc *stmtctx.StatementContext, m kv.Mutator, indexedValues []types.Datum, h int64) error {
-	key, _, err := c.GenIndexKey(sc, indexedValues, h, nil)
+	key, _, _, err := c.GenIndexKey(sc, indexedValues, h, nil)
 	if err != nil {
 		return err
 	}
@@ -306,7 +345,7 @@ func (c *index) Drop(rm kv.RetrieverMutator) error {
 
 // Seek searches KV index for the entry with indexedValues.
 func (c *index) Seek(sc *stmtctx.StatementContext, r kv.Retriever, indexedValues []types.Datum) (iter table.IndexIterator, hit bool, err error) {
-	key, _, err := c.GenIndexKey(sc, indexedValues, 0, nil)
+	key, _, _, err := c.GenIndexKey(sc, indexedValues, 0, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -335,7 +374,7 @@ func (c *index) SeekFirst(r kv.Retriever) (iter table.IndexIterator, err error) 
 }
 
 func (c *index) Exist(sc *stmtctx.StatementContext, rm kv.RetrieverMutator, indexedValues []types.Datum, h int64) (bool, int64, error) {
-	key, distinct, err := c.GenIndexKey(sc, indexedValues, h, nil)
+	key, _, distinct, err := c.GenIndexKey(sc, indexedValues, h, nil)
 	if err != nil {
 		return false, 0, err
 	}

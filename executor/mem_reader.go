@@ -110,11 +110,11 @@ func (m *memIndexReader) getMemRows() ([][]types.Datum, error) {
 }
 
 func (m *memIndexReader) decodeIndexKeyValue(key, value []byte, tps []*types.FieldType) ([]types.Datum, error) {
-	pkStatus := tablecodec.PrimaryKeyIsSigned
+	hdStatus := tablecodec.HandleIsSigned
 	if mysql.HasUnsignedFlag(tps[len(tps)-1].Flag) {
-		pkStatus = tablecodec.PrimaryKeyIsUnsigned
+		hdStatus = tablecodec.HandleIsUnsigned
 	}
-	values, err := tablecodec.DecodeIndexKV(key, value, len(m.index.Columns), pkStatus)
+	values, err := tablecodec.DecodeIndexKV(key, value, len(m.index.Columns), hdStatus)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

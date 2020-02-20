@@ -258,7 +258,7 @@ type indexScanExec struct {
 	mvccStore      MVCCStore
 	cursor         int
 	seekKey        []byte
-	pkStatus       tablecodec.PrimaryKeyStatus
+	hdStatus       tablecodec.HandleStatus
 	start          int
 	counts         []int64
 	execDetail     *execDetail
@@ -370,7 +370,7 @@ func (e *indexScanExec) getRowFromPoint(ran kv.KeyRange) ([][]byte, error) {
 	if len(val) == 0 {
 		return nil, nil
 	}
-	return tablecodec.DecodeIndexKV(ran.StartKey, val, e.colsLen, e.pkStatus)
+	return tablecodec.DecodeIndexKV(ran.StartKey, val, e.colsLen, e.hdStatus)
 }
 
 func (e *indexScanExec) getRowFromRange(ran kv.KeyRange) ([][]byte, error) {
@@ -410,7 +410,7 @@ func (e *indexScanExec) getRowFromRange(ran kv.KeyRange) ([][]byte, error) {
 		e.seekKey = []byte(kv.Key(pair.Key).PrefixNext())
 	}
 
-	return tablecodec.DecodeIndexKV(pair.Key, pair.Value, e.colsLen, e.pkStatus)
+	return tablecodec.DecodeIndexKV(pair.Key, pair.Value, e.colsLen, e.hdStatus)
 }
 
 type selectionExec struct {
