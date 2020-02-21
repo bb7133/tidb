@@ -17,8 +17,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb/util/collate"
 	"io"
 	"unicode/utf8"
 
@@ -26,6 +24,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
@@ -33,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/collate"
 )
 
 // EncodeHandle encodes handle in data.
@@ -222,7 +222,7 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	vars := sctx.GetSessionVars()
 	writeBufs := vars.GetWriteStmtBufs()
 	skipCheck := vars.StmtCtx.BatchCheck
-	key, indexedValue, distinct, err := c.GenIndexKey(vars.StmtCtx, indexedValues, h, writeBufs.IndexKeyBuf)
+	key, restoredValue, distinct, err := c.GenIndexKey(vars.StmtCtx, indexedValues, h, writeBufs.IndexKeyBuf)
 	if err != nil {
 		return 0, err
 	}
@@ -247,7 +247,7 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	var idxVal []byte
 	if collate.NewCollationEnabled() {
 		idxVal = make([]byte, 1+len(indexedValues))
-		copy(idxVal[1:], indexedValue)
+		copy(idxVal[1:], restoredValue)
 		tailLen := 0
 		if distinct {
 			tailLen += 8
