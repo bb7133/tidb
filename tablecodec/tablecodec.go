@@ -614,7 +614,7 @@ func cutIndexValue(value []byte, length int) (values [][]byte, err error) {
 		}
 		values = append(values, val)
 	}
-	return values, nil
+	return
 }
 
 // HandleStatus is the handle status in index.
@@ -633,7 +633,9 @@ func handleExists(hdStatus HandleStatus) bool {
 	return hdStatus != HandleNotExists
 }
 
-func decodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error) {
+// reencodeHandleByStatus first decode the value into a int or uint decided by the hdStatus, then encode it so that it can
+// be properly decoded.
+func reencodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error) {
 	handle, err := DecodeIndexValueAsHandle(value)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -681,7 +683,7 @@ func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleSt
 			}
 		}
 		if handleExists(hdStatus) {
-			handleBytes, err := decodeHandleByStatus(value[len(value)-8:], hdStatus)
+			handleBytes, err := reencodeHandleByStatus(value[len(value)-8:], hdStatus)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -703,7 +705,7 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 		}
 	} else if handleExists(hdStatus) {
 		// unique index
-		handleBytes, err := decodeHandleByStatus(value, hdStatus)
+		handleBytes, err := reencodeHandleByStatus(value, hdStatus)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
