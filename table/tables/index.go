@@ -214,6 +214,66 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 // Create creates a new entry in the kvIndex data.
 // If the index is unique and there is an existing entry with the same key,
 // Create will return the existing entry's handle as the first return value, ErrKeyExists as the second return value.
+// Value layout:
+//		+--With Restore Data(for indices on string columns)
+//		|  |
+//		|  +--Non Unique
+//		|  |  |
+//		|  |  +--Without Untouched Flag:
+//		|  |  |
+//		|  |  |  Layout: 0x00 |    RestoreData    |      PaddingData
+//		|  |  |  Length: 1    | size(RestoreData) | size(paddigData)
+//		|  |  |
+//		|  |  |  The length >= 10 always because of padding.
+//		|  |  |
+//		|  |  +--With Untouched Flag:
+//		|  |
+//		|  |     Layout: 0x01 |    RestoreData    |     PaddingData   | Flag
+//		|  |     Length: 1    | size(RestoreData) | size(paddingData) |  1
+//		|  |
+//		|  |     The length >= 11 always because of padding.
+//		|  |
+//		|  +--Unique
+//		|     |
+//		|     +--Without Untouched Flag:
+//		|     |
+//		|     |  Layout: 0x08 |    RestoreData    |  Handle
+//		|     |  Length: 1    | size(RestoreData) |   8
+//		|     |
+//		|     |  The length >= 10 always since size(RestoreData) > 0.
+//		|     |
+//		|     +--With Untouched Flag:
+//		|
+//		|        Layout: 0x09 |    RestoreData    |  Handle  | Flag
+//		|        Length: 1    | size(RestoreData) |   8      | 1
+//		|
+//		|   	 The length >= 11 always since size(RestoreData) > 0.
+//		|
+//		+--Without Restore Data(same with old layout)
+//		|
+//		+--Non Unique
+//		|  |
+//		|  +--Without Untouched Flag:
+//		|  |
+//		|  |  Layout: '0'
+//		|  |  Length:  1
+//		|  |
+//		|  +--With Untouched Flag:
+//		|
+//		|     Layout: Flag
+//		|     Lenght:  1
+//		|
+//		+--Unique
+//		|
+//		+--Without Untouched Flag:
+//		|
+//		|  Layout: Handle
+//		|  Length:   8
+//		|
+//		+--With Untouched Flag:
+//
+//		Layout: Handle | Flag
+//		Length:   8    |  1
 func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedValues []types.Datum, h int64, opts ...table.CreateIdxOptFunc) (int64, error) {
 	var opt table.CreateIdxOpt
 	for _, fn := range opts {
