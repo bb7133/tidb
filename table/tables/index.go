@@ -103,7 +103,7 @@ type index struct {
 	containString bool
 }
 
-func (c *index) checkContainString() bool {
+func (c *index) checkContainNonBinaryString() bool {
 	for _, idxCol := range c.idxInfo.Columns {
 		col := c.tblInfo.Columns[idxCol.Offset]
 		if types.EvalType(col.Tp) == types.ETString && !mysql.HasBinaryFlag(col.Flag) {
@@ -122,7 +122,7 @@ func NewIndex(physicalID int64, tblInfo *model.TableInfo, indexInfo *model.Index
 		prefix: tablecodec.EncodeTableIndexPrefix(physicalID, indexInfo.ID),
 	}
 	if collate.NewCollationEnabled() {
-		index.containString = index.checkContainString()
+		index.containString = index.checkContainNonBinaryString()
 	}
 	return index
 }
@@ -245,13 +245,16 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	// save the key buffer to reuse.
 	writeBufs.IndexKeyBuf = key
 	var idxVal []byte
-	if collate.NewCollationEnabled() {
+	if collate.NewCollationEnabled() && !c.checkContainNonBinaryString() {
 		idxVal = make([]byte, 1+len(indexedValues))
 		copy(idxVal[1:], restoredValue)
 		tailLen := 0
 		if distinct {
 			tailLen += 8
 			idxVal = append(idxVal, EncodeHandle(h)...)
+		} else {
+			// Padding the len to 10
+			idxVal = append(idxVal, bytes.Repeat([]byte{0x0}, 10-len(idxVal))...)
 		}
 		if opt.Untouched {
 			// If index is untouched and fetch here means the key is exists in TiKV, but not in txn mem-buffer,

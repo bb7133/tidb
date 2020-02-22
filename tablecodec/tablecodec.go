@@ -27,7 +27,6 @@ import (
 	"github.com/pingcap/tidb/structure"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/pingcap/tidb/util/collate"
 	"github.com/pingcap/tidb/util/rowcodec"
 )
 
@@ -633,9 +632,9 @@ func handleExists(hdStatus HandleStatus) bool {
 	return hdStatus != HandleNotExists
 }
 
-// reencodeHandleByStatus first decode the value into a int or uint decided by the hdStatus, then encode it so that it can
+// reEncodeHandleByStatus first decode the value into a int or uint decided by the hdStatus, then encode it so that it can
 // be properly decoded.
-func reencodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error) {
+func reEncodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error) {
 	handle, err := DecodeIndexValueAsHandle(value)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -655,35 +654,25 @@ func reencodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error)
 }
 
 func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
-	resultValues, b, err := CutIndexKeyNew(key, colsLen)
+	resultValues, err := cutIndexValue(value, colsLen)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	tailLen := value[0]
-	if tailLen == 0 {
+	if tailLen <= 1 {
 		// In non-unique index.
-		if len(value) != 1 {
-			//  We need to get the restored indexed values.
-			resultValues, err = cutIndexValue(value, colsLen)
+		if handleExists(hdStatus) {
+			_, b, err := CutIndexKeyNew(key, colsLen)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-		}
-		if handleExists(hdStatus) {
 			resultValues = append(resultValues, b)
 		}
 	} else {
 		// In unique index.
-		if len(value) != 9 {
-			//  We need to get the restored indexed values.
-			resultValues, err = cutIndexValue(value, colsLen)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-		}
 		if handleExists(hdStatus) {
-			handleBytes, err := reencodeHandleByStatus(value[len(value)-8:], hdStatus)
+			handleBytes, err := reEncodeHandleByStatus(value[len(value)-int(tailLen):], hdStatus)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -705,7 +694,7 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 		}
 	} else if handleExists(hdStatus) {
 		// unique index
-		handleBytes, err := reencodeHandleByStatus(value, hdStatus)
+		handleBytes, err := reEncodeHandleByStatus(value, hdStatus)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -716,7 +705,7 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 
 // DecodeIndexKV uses to decode index key values.
 func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
-	if collate.NewCollationEnabled() {
+	if len(value) >= 10 {
 		return decodeIndexKvNewCollation(key, value, colsLen, hdStatus)
 	}
 	return decodeIndexKvOldCollation(key, value, colsLen, hdStatus)
@@ -813,9 +802,17 @@ func IsIndexKey(k []byte) bool {
 // IsUntouchedIndexKValue uses to check whether the key is index key, and the value is untouched,
 // since the untouched index key/value is no need to commit.
 func IsUntouchedIndexKValue(k, v []byte) bool {
+	if !IsIndexKey(k) {
+		return false
+	}
 	vLen := len(v)
-	return IsIndexKey(k) &&
-		((vLen == 1 || vLen == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag)
+	if (vLen == 1 || vLen == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag {
+		return true
+	}
+	if vLen >= 10 && v[0] != 8 && v[vLen-1] == kv.UnCommitIndexKVFlag {
+		return true
+	}
+	return false
 }
 
 // GenTablePrefix composes table record and index prefix: "t[tableID]".
