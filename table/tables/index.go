@@ -246,10 +246,11 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	writeBufs.IndexKeyBuf = key
 	var idxVal []byte
 	if collate.NewCollationEnabled() && !c.checkContainNonBinaryString() {
-		idxVal = make([]byte, 1+len(indexedValues))
+		idxVal = make([]byte, 1+len(restoredValue))
 		copy(idxVal[1:], restoredValue)
 		tailLen := 0
 		if distinct {
+			// The len of the idxVal is always >= 10 since len (restoredValue) > 0.
 			tailLen += 8
 			idxVal = append(idxVal, EncodeHandle(h)...)
 		} else {
