@@ -49,6 +49,7 @@ const (
 	RecordRowKeyLen       = prefixLen + idLen /*handle*/
 	tablePrefixLength     = 1
 	recordPrefixSepLength = 2
+	MaxOldEncodeValueLen  = 9
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
@@ -705,7 +706,7 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 
 // DecodeIndexKV uses to decode index key values.
 func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
-	if len(value) >= 10 {
+	if len(value) > MaxOldEncodeValueLen {
 		return decodeIndexKvNewCollation(key, value, colsLen, hdStatus)
 	}
 	return decodeIndexKvOldCollation(key, value, colsLen, hdStatus)
@@ -806,10 +807,10 @@ func IsUntouchedIndexKValue(k, v []byte) bool {
 		return false
 	}
 	vLen := len(v)
-	if (vLen == 1 || vLen == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag {
+	if vLen <= MaxOldEncodeValueLen && v[vLen-1] == kv.UnCommitIndexKVFlag {
 		return true
 	}
-	if vLen >= 10 && v[0] != 8 && v[vLen-1] == kv.UnCommitIndexKVFlag {
+	if vLen > MaxOldEncodeValueLen && v[0] != 8 && v[vLen-1] == kv.UnCommitIndexKVFlag {
 		return true
 	}
 	return false

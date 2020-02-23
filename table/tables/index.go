@@ -44,7 +44,11 @@ func EncodeHandle(h int64) []byte {
 
 // DecodeHandle decodes handle in data.
 func DecodeHandle(data []byte) (int64, error) {
-	return int64(binary.BigEndian.Uint64(data)), nil
+	dLen := len(data)
+	if dLen <= tablecodec.MaxOldEncodeValueLen {
+		return int64(binary.BigEndian.Uint64(data)), nil
+	}
+	return int64(binary.BigEndian.Uint64(data[dLen-int(data[0]):])), nil
 }
 
 // indexIter is for KV store index iterator.
@@ -97,10 +101,10 @@ func (c *indexIter) Next() (val []types.Datum, h int64, err error) {
 
 // index is the data structure for index data in the KV store.
 type index struct {
-	idxInfo       *model.IndexInfo
-	tblInfo       *model.TableInfo
-	prefix        kv.Key
-	containString bool
+	idxInfo                *model.IndexInfo
+	tblInfo                *model.TableInfo
+	prefix                 kv.Key
+	containNonBinaryString bool
 }
 
 func (c *index) checkContainNonBinaryString() bool {
@@ -122,7 +126,7 @@ func NewIndex(physicalID int64, tblInfo *model.TableInfo, indexInfo *model.Index
 		prefix: tablecodec.EncodeTableIndexPrefix(physicalID, indexInfo.ID),
 	}
 	if collate.NewCollationEnabled() {
-		index.containString = index.checkContainNonBinaryString()
+		index.containNonBinaryString = index.checkContainNonBinaryString()
 	}
 	return index
 }
@@ -193,7 +197,7 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 	// For string columns, indexes can be created using only the leading part of column values,
 	// using col_name(length) syntax to specify an index prefix length.
 	indexedValues = TruncateIndexValuesIfNeeded(c.tblInfo, c.idxInfo, indexedValues)
-	if collate.NewCollationEnabled() && c.containString {
+	if collate.NewCollationEnabled() && c.containNonBinaryString {
 		value, err = codec.EncodeValue(sc, make([]byte, 0, len(indexedValues)*9), indexedValues...)
 		if err != nil {
 			return nil, nil, false, err
@@ -305,7 +309,7 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	// save the key buffer to reuse.
 	writeBufs.IndexKeyBuf = key
 	var idxVal []byte
-	if collate.NewCollationEnabled() && !c.checkContainNonBinaryString() {
+	if collate.NewCollationEnabled() && c.containNonBinaryString {
 		idxVal = make([]byte, 1+len(restoredValue))
 		copy(idxVal[1:], restoredValue)
 		tailLen := 0
