@@ -50,7 +50,7 @@ const (
 	tablePrefixLength     = 1
 	recordPrefixSepLength = 2
 	// MaxOldEncodeValueLen is the maximum len of the old encoding of index value.
-	MaxOldEncodeValueLen  = 9
+	MaxOldEncodeValueLen = 9
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
