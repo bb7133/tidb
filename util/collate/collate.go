@@ -15,7 +15,6 @@ package collate
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/pingcap/parser/mysql"
 )
@@ -25,7 +24,6 @@ var (
 	collatorIDMap       map[int]Collator
 	id2NameMap          map[int32]string
 	newCollationEnabled bool
-	setCollationOnce    sync.Once
 )
 
 // DefaultLen is set for datum if the string datum don't know its length.
@@ -52,11 +50,9 @@ type Collator interface {
 	Key(str string, opt CollatorOption) []byte
 }
 
-// SetNewCollationEnabled sets if the new collation are enabled.
-func SetNewCollationEnabled(flag bool) {
-	setCollationOnce.Do(func() {
-		SetNewCollationEnabledForTest(flag)
-	})
+// EnableNewCollations enables the new collation.
+func EnableNewCollations() {
+	SetNewCollationEnabledForTest(true)
 }
 
 // SetNewCollationEnabledForTest sets if the new collation are enabled in test.
