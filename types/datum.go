@@ -446,7 +446,7 @@ func (d *Datum) SetValue(val interface{}) {
 	case float64:
 		d.SetFloat64(x)
 	case string:
-		d.SetString(x, collate.DefaultCollation, collate.DefaultLen)
+		d.SetString(x, mysql.DefaultCollationName, collate.DefaultLen)
 	case []byte:
 		d.SetBytes(x)
 	case *MyDecimal:
@@ -454,7 +454,7 @@ func (d *Datum) SetValue(val interface{}) {
 	case Duration:
 		d.SetMysqlDuration(x)
 	case Enum:
-		d.SetMysqlEnum(x, collate.DefaultCollation, collate.DefaultLen)
+		d.SetMysqlEnum(x, mysql.DefaultCollationName, collate.DefaultLen)
 	case BinaryLiteral:
 		d.SetBinaryLiteral(x)
 	case BitLiteral: // Store as BinaryLiteral for Bit and Hex literals
@@ -462,7 +462,7 @@ func (d *Datum) SetValue(val interface{}) {
 	case HexLiteral:
 		d.SetBinaryLiteral(BinaryLiteral(x))
 	case Set:
-		d.SetMysqlSet(x, collate.DefaultCollation, collate.DefaultLen)
+		d.SetMysqlSet(x, mysql.DefaultCollationName, collate.DefaultLen)
 	case json.BinaryJSON:
 		d.SetMysqlJSON(x)
 	case Time:
@@ -1702,7 +1702,7 @@ func NewBytesDatum(b []byte) (d Datum) {
 
 // NewStringDatum creates a new Datum from a string.
 func NewStringDatum(s string) (d Datum) {
-	d.SetString(s, collate.DefaultCollation, collate.DefaultLen)
+	d.SetString(s, mysql.DefaultCollationName, collate.DefaultLen)
 	return d
 }
 
@@ -1762,7 +1762,7 @@ func NewMysqlBitDatum(b BinaryLiteral) (d Datum) {
 
 // NewMysqlEnumDatum creates a new MysqlEnum Datum for a Enum value.
 func NewMysqlEnumDatum(e Enum) (d Datum) {
-	d.SetMysqlEnum(e, collate.DefaultCollation, collate.DefaultLen)
+	d.SetMysqlEnum(e, mysql.DefaultCollationName, collate.DefaultLen)
 	return d
 }
 
