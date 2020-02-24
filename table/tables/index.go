@@ -110,7 +110,7 @@ type index struct {
 func (c *index) checkContainNonBinaryString() bool {
 	for _, idxCol := range c.idxInfo.Columns {
 		col := c.tblInfo.Columns[idxCol.Offset]
-		if types.EvalType(col.Tp) == types.ETString && !mysql.HasBinaryFlag(col.Flag) {
+		if col.EvalType() == types.ETString && !mysql.HasBinaryFlag(col.Flag) {
 			return true
 		}
 	}
@@ -265,7 +265,7 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 //		|  +--With Untouched Flag:
 //		|
 //		|     Layout: Flag
-//		|     Lenght:  1
+//		|     Length:  1
 //		|
 //		+--Unique
 //		|
