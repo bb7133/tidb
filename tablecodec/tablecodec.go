@@ -809,13 +809,11 @@ func IsUntouchedIndexKValue(k, v []byte) bool {
 		return false
 	}
 	vLen := len(v)
-	if vLen <= MaxOldEncodeValueLen && v[vLen-1] == kv.UnCommitIndexKVFlag {
-		return true
+	if vLen <= MaxOldEncodeValueLen{
+		return (vLen == 1 || vLen == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag
 	}
-	if vLen > MaxOldEncodeValueLen && v[0] != 8 && v[vLen-1] == kv.UnCommitIndexKVFlag {
-		return true
-	}
-	return false
+
+	return (v[0] == 1 || v[0] == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag
 }
 
 // GenTablePrefix composes table record and index prefix: "t[tableID]".
