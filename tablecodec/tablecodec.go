@@ -603,6 +603,7 @@ func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err erro
 
 // cutIndexValue cuts encoded index value into bytes slices.
 // This function is used only when NewCollationEnabled is true.
+// The return values is the slices of the restored data.
 func cutIndexValue(value []byte, length int) (values [][]byte, err error) {
 	// ignore tailLen
 	b := value[1:]

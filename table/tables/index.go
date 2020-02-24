@@ -225,14 +225,14 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 //		|  |  |
 //		|  |  +--Without Untouched Flag:
 //		|  |  |
-//		|  |  |  Layout: 0x00 |    RestoreData    |      PaddingData
-//		|  |  |  Length: 1    | size(RestoreData) | size(paddigData)
+//		|  |  |  Layout: 0x00 |      RestoreData  |      PaddingData
+//		|  |  |  Length: 1    | size(RestoreData) | size(paddingData)
 //		|  |  |
 //		|  |  |  The length >= 10 always because of padding.
 //		|  |  |
 //		|  |  +--With Untouched Flag:
 //		|  |
-//		|  |     Layout: 0x01 |    RestoreData    |     PaddingData   | Flag
+//		|  |     Layout: 0x01 |    RestoreData    |      PaddingData  | Flag
 //		|  |     Length: 1    | size(RestoreData) | size(paddingData) |  1
 //		|  |
 //		|  |     The length >= 11 always because of padding.
@@ -248,7 +248,7 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 //		|     |
 //		|     +--With Untouched Flag:
 //		|
-//		|        Layout: 0x09 |    RestoreData    |  Handle  | Flag
+//		|        Layout: 0x09 |      RestoreData  |  Handle  | Flag
 //		|        Length: 1    | size(RestoreData) |   8      | 1
 //		|
 //		|   	 The length >= 11 always since size(RestoreData) > 0.
