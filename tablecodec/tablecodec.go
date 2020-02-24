@@ -809,10 +809,9 @@ func IsUntouchedIndexKValue(k, v []byte) bool {
 		return false
 	}
 	vLen := len(v)
-	if vLen <= MaxOldEncodeValueLen{
+	if vLen <= MaxOldEncodeValueLen {
 		return (vLen == 1 || vLen == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag
 	}
-
 	return (v[0] == 1 || v[0] == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag
 }
 
