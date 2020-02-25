@@ -114,7 +114,17 @@ func (m *memIndexReader) decodeIndexKeyValue(key, value []byte, tps []*types.Fie
 	if mysql.HasUnsignedFlag(tps[len(tps)-1].Flag) {
 		hdStatus = tablecodec.HandleIsUnsigned
 	}
-	values, err := tablecodec.DecodeIndexKV(key, value, len(m.index.Columns), hdStatus)
+	colInfos := make([]rowcodec.ColInfo, 0, len(m.index.Columns))
+	for _, idxCol := range m.index.Columns {
+		col := m.table.Columns[idxCol.Offset]
+		colInfos = append(colInfos, rowcodec.ColInfo{
+			ID:         col.ID,
+			Tp:         int32(col.Tp),
+			Flag:       int32(col.Flag),
+			IsPKHandle: m.table.PKIsHandle && mysql.HasPriKeyFlag(col.Flag),
+		})
+	}
+	values, err := tablecodec.DecodeIndexKV(key, value, len(m.index.Columns), hdStatus, colInfos)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

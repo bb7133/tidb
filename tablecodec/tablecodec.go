@@ -602,24 +602,6 @@ func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err erro
 	return
 }
 
-// cutIndexValue cuts encoded index value into bytes slices.
-// This function is used only when NewCollationEnabled is true.
-// The return values is the slices of the restored data.
-func cutIndexValue(value []byte, length int) (values [][]byte, err error) {
-	// ignore tailLen
-	b := value[1:]
-	values = make([][]byte, 0, length)
-	for i := 0; i < length; i++ {
-		var val []byte
-		val, b, err = codec.CutOne(b)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		values = append(values, val)
-	}
-	return
-}
-
 // HandleStatus is the handle status in index.
 type HandleStatus int
 
@@ -657,14 +639,20 @@ func reEncodeHandleByStatus(value []byte, hdStatus HandleStatus) ([]byte, error)
 	return handleBytes, nil
 }
 
-func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
-	resultValues, err := cutIndexValue(value, colsLen)
+func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleStatus, columns []rowcodec.ColInfo) ([][]byte, error) {
+	colIDs := make(map[int64]int, len(columns))
+	for i, col := range columns {
+		colIDs[col.ID] = i
+	}
+	rd := rowcodec.NewByteDecoder(columns, -1, nil, nil)
+	vLen := len(value)
+	tailLen := int(value[0])
+	resultValues, err := rd.DecodeToBytes(colIDs, -1, value[1:vLen-tailLen], nil)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	tailLen := value[0]
-	if tailLen <= 1 {
+	if tailLen < 8 {
 		// In non-unique index.
 		if handleExists(hdStatus) {
 			_, b, err := CutIndexKeyNew(key, colsLen)
@@ -676,7 +664,7 @@ func decodeIndexKvNewCollation(key, value []byte, colsLen int, hdStatus HandleSt
 	} else {
 		// In unique index.
 		if handleExists(hdStatus) {
-			handleBytes, err := reEncodeHandleByStatus(value[len(value)-int(tailLen):], hdStatus)
+			handleBytes, err := reEncodeHandleByStatus(value[vLen-tailLen:], hdStatus)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -708,9 +696,9 @@ func decodeIndexKvOldCollation(key, value []byte, colsLen int, hdStatus HandleSt
 }
 
 // DecodeIndexKV uses to decode index key values.
-func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus) ([][]byte, error) {
+func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus, columns []rowcodec.ColInfo) ([][]byte, error) {
 	if len(value) > MaxOldEncodeValueLen {
-		return decodeIndexKvNewCollation(key, value, colsLen, hdStatus)
+		return decodeIndexKvNewCollation(key, value, colsLen, hdStatus, columns)
 	}
 	return decodeIndexKvOldCollation(key, value, colsLen, hdStatus)
 }
@@ -813,7 +801,14 @@ func IsUntouchedIndexKValue(k, v []byte) bool {
 	if vLen <= MaxOldEncodeValueLen {
 		return (vLen == 1 || vLen == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag
 	}
-	return (v[0] == 1 || v[0] == 9) && v[vLen-1] == kv.UnCommitIndexKVFlag
+	// New index value format
+	tailLen := int(v[0])
+	if tailLen < 8 {
+		// Non-unique index.
+		return vLen == 11
+	}
+	// Unique index
+	return v[0] == 1 || v[0] == 9
 }
 
 // GenTablePrefix composes table record and index prefix: "t[tableID]".

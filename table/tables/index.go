@@ -33,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/collate"
+	"github.com/pingcap/tidb/util/rowcodec"
 )
 
 // EncodeHandle encodes handle in data.
@@ -179,7 +180,7 @@ func TruncateIndexValuesIfNeeded(tblInfo *model.TableInfo, idxInfo *model.IndexI
 
 // GenIndexKey generates storage key for index values. Returned distinct indicates whether the
 // indexed values should be distinct in storage (i.e. whether handle is encoded in the key).
-func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.Datum, h int64, buf []byte) (key []byte, value []byte, distinct bool, err error) {
+func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.Datum, h int64, buf []byte) (key []byte, value []types.Datum, distinct bool, err error) {
 	if c.idxInfo.Unique {
 		// See https://dev.mysql.com/doc/refman/5.7/en/create-index.html
 		// A UNIQUE index creates a constraint such that all values in the index must be distinct.
@@ -197,12 +198,7 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 	// For string columns, indexes can be created using only the leading part of column values,
 	// using col_name(length) syntax to specify an index prefix length.
 	indexedValues = TruncateIndexValuesIfNeeded(c.tblInfo, c.idxInfo, indexedValues)
-	if collate.NewCollationEnabled() && c.containNonBinaryString {
-		value, err = codec.EncodeValue(sc, make([]byte, 0, len(indexedValues)*9), indexedValues...)
-		if err != nil {
-			return nil, nil, false, err
-		}
-	}
+	value = indexedValues
 	key = c.getIndexKeyBuf(buf, len(c.prefix)+len(indexedValues)*9+9)
 	key = append(key, []byte(c.prefix)...)
 	key, err = codec.EncodeKey(sc, key, indexedValues...)
@@ -221,23 +217,23 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 // Value layout:
 //		+--With Restore Data(for indices on string columns)
 //		|  |
-//		|  +--Non Unique
+//		|  +--Non Unique (TailLen = len(PaddingData) + len(Flag), TailLen < 8 always)
 //		|  |  |
 //		|  |  +--Without Untouched Flag:
 //		|  |  |
-//		|  |  |  Layout: 0x00 |      RestoreData  |      PaddingData
-//		|  |  |  Length: 1    | size(RestoreData) | size(paddingData)
+//		|  |  |  Layout: TailLen |      RestoreData  |      PaddingData
+//		|  |  |  Length: 1       | size(RestoreData) | size(paddingData)
 //		|  |  |
 //		|  |  |  The length >= 10 always because of padding.
 //		|  |  |
 //		|  |  +--With Untouched Flag:
 //		|  |
-//		|  |     Layout: 0x01 |    RestoreData    |      PaddingData  | Flag
-//		|  |     Length: 1    | size(RestoreData) | size(paddingData) |  1
+//		|  |     Layout: TailLen |    RestoreData    |      PaddingData  | Flag
+//		|  |     Length: 1       | size(RestoreData) | size(paddingData) |  1
 //		|  |
 //		|  |     The length >= 11 always because of padding.
 //		|  |
-//		|  +--Unique
+//		|  +--Unique (TailLen = len(Handle) + len(Flag), TailLen == 8 || TailLen == 9)
 //		|     |
 //		|     +--Without Untouched Flag:
 //		|     |
@@ -310,8 +306,17 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 	writeBufs.IndexKeyBuf = key
 	var idxVal []byte
 	if collate.NewCollationEnabled() && c.containNonBinaryString {
-		idxVal = make([]byte, 1+len(restoredValue))
-		copy(idxVal[1:], restoredValue)
+		colIds := make([]int64, len(c.idxInfo.Columns))
+		for i, col := range c.idxInfo.Columns {
+			colIds[i] = c.tblInfo.Columns[col.Offset].ID
+		}
+		rd := rowcodec.Encoder{Enable: true}
+		rowRestoredValue, err := rd.Encode(sctx.GetSessionVars().StmtCtx, colIds, restoredValue, nil)
+		if err != nil {
+			return 0, err
+		}
+		idxVal = make([]byte, 1+len(rowRestoredValue))
+		copy(idxVal[1:], rowRestoredValue)
 		tailLen := 0
 		if distinct {
 			// The len of the idxVal is always >= 10 since len (restoredValue) > 0.
@@ -319,7 +324,9 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 			idxVal = append(idxVal, EncodeHandle(h)...)
 		} else {
 			// Padding the len to 10
-			idxVal = append(idxVal, bytes.Repeat([]byte{0x0}, 10-len(idxVal))...)
+			paddingLen := 10 - len(idxVal)
+			tailLen += paddingLen
+			idxVal = append(idxVal, bytes.Repeat([]byte{0x0}, paddingLen)...)
 		}
 		if opt.Untouched {
 			// If index is untouched and fetch here means the key is exists in TiKV, but not in txn mem-buffer,
