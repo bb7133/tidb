@@ -528,7 +528,7 @@ func unflatten(datum types.Datum, ft *types.FieldType, loc *time.Location) (type
 		return datum, nil
 	case mysql.TypeDuration: //duration should read fsp from column meta data
 		dur := types.Duration{Duration: time.Duration(datum.GetInt64()), Fsp: int8(ft.Decimal)}
-		datum.SetValue(dur)
+		datum.SetMysqlDuration(dur)
 		return datum, nil
 	case mysql.TypeEnum:
 		// ignore error deliberately, to read empty enum value.
@@ -536,14 +536,14 @@ func unflatten(datum types.Datum, ft *types.FieldType, loc *time.Location) (type
 		if err != nil {
 			enum = types.Enum{}
 		}
-		datum.SetValue(enum)
+		datum.SetMysqlEnum(enum, ft.Collate, ft.Flen)
 		return datum, nil
 	case mysql.TypeSet:
 		set, err := types.ParseSetValue(ft.Elems, datum.GetUint64())
 		if err != nil {
 			return datum, errors.Trace(err)
 		}
-		datum.SetValue(set)
+		datum.SetMysqlSet(set, ft.Collate, ft.Flen)
 		return datum, nil
 	case mysql.TypeBit:
 		val := datum.GetUint64()
