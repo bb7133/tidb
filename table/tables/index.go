@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"github.com/pingcap/tidb/util/rowcodec"
 	"io"
 	"unicode/utf8"
 
@@ -34,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/collate"
+	"github.com/pingcap/tidb/util/rowcodec"
 )
 
 // EncodeHandle encodes handle in data.
@@ -217,23 +217,23 @@ func (c *index) GenIndexKey(sc *stmtctx.StatementContext, indexedValues []types.
 // Value layout:
 //		+--With Restore Data(for indices on string columns)
 //		|  |
-//		|  +--Non Unique
+//		|  +--Non Unique (TailLen = len(PaddingData) + len(Flag), TailLen < 8 always)
 //		|  |  |
 //		|  |  +--Without Untouched Flag:
 //		|  |  |
-//		|  |  |  Layout: 0x00 |      RestoreData  |      PaddingData
-//		|  |  |  Length: 1    | size(RestoreData) | size(paddingData)
+//		|  |  |  Layout: TailLen |      RestoreData  |      PaddingData
+//		|  |  |  Length: 1       | size(RestoreData) | size(paddingData)
 //		|  |  |
 //		|  |  |  The length >= 10 always because of padding.
 //		|  |  |
 //		|  |  +--With Untouched Flag:
 //		|  |
-//		|  |     Layout: 0x01 |    RestoreData    |      PaddingData  | Flag
-//		|  |     Length: 1    | size(RestoreData) | size(paddingData) |  1
+//		|  |     Layout: TailLen |    RestoreData    |      PaddingData  | Flag
+//		|  |     Length: 1       | size(RestoreData) | size(paddingData) |  1
 //		|  |
 //		|  |     The length >= 11 always because of padding.
 //		|  |
-//		|  +--Unique
+//		|  +--Unique (TailLen = len(Handle) + len(Flag), TailLen == 8 || TailLen == 9)
 //		|     |
 //		|     +--Without Untouched Flag:
 //		|     |
