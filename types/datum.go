@@ -177,11 +177,6 @@ func (d *Datum) SetString(s string, collation string, length int) {
 	d.k = KindString
 	sink(s)
 	d.b = hack.Slice(s)
-	if length < 0 {
-		d.length = 0
-	} else {
-		d.length = uint32(length)
-	}
 	d.collation = collation
 }
 
