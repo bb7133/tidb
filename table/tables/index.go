@@ -126,9 +126,8 @@ func NewIndex(physicalID int64, tblInfo *model.TableInfo, indexInfo *model.Index
 		// The prefix can't encode from tblInfo.ID, because table partition may change the id to partition id.
 		prefix: tablecodec.EncodeTableIndexPrefix(physicalID, indexInfo.ID),
 	}
-	if collate.NewCollationEnabled() {
-		index.containNonBinaryString = index.checkContainNonBinaryString()
-	}
+	index.containNonBinaryString = index.checkContainNonBinaryString()
+
 	return index
 }
 
@@ -322,7 +321,7 @@ func (c *index) Create(sctx sessionctx.Context, rm kv.RetrieverMutator, indexedV
 			// The len of the idxVal is always >= 10 since len (restoredValue) > 0.
 			tailLen += 8
 			idxVal = append(idxVal, EncodeHandle(h)...)
-		} else {
+		} else if len(idxVal) < 10 {
 			// Padding the len to 10
 			paddingLen := 10 - len(idxVal)
 			tailLen += paddingLen
