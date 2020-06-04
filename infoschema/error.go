@@ -43,6 +43,8 @@ var (
 	ErrNonuniqTable = terror.ClassSchema.New(mysql.ErrNonuniqTable, mysql.MySQLErrName[mysql.ErrNonuniqTable])
 	// ErrMultiplePriKey returns for multiple primary keys.
 	ErrMultiplePriKey = terror.ClassSchema.New(mysql.ErrMultiplePriKey, mysql.MySQLErrName[mysql.ErrMultiplePriKey])
+	// ErrCheckConstraintDuplicate returns for duplicate constraint names.
+	ErrCheckConstraintDuplicate = terror.ClassSchema.New(mysql.ErrCheckConstraintDuplicate, mysql.MySQLErrName[mysql.ErrCheckConstraintDuplicate])
 	// ErrTooManyKeyParts returns for too many key parts.
 	ErrTooManyKeyParts = terror.ClassSchema.New(mysql.ErrTooManyKeyParts, mysql.MySQLErrName[mysql.ErrTooManyKeyParts])
 	// ErrForeignKeyNotExists returns for foreign key not exists.

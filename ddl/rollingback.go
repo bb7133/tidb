@@ -188,6 +188,49 @@ func rollingbackAddIndex(w *worker, d *ddlCtx, t *meta.Meta, job *model.Job, isP
 	return
 }
 
+func rollingbackAddConstraint(t *meta.Meta, job *model.Job) (ver int64, err error) {
+	job.State = model.JobStateRollingback
+	_, tblInfo, constrInfoInMeta, _, err := checkAddCheckConstraint(t, job)
+	if err != nil {
+		return ver, errors.Trace(err)
+	}
+	if constrInfoInMeta == nil {
+		// Add constraint hasn't stored constraint info into meta, so we can cancel the job
+		// directly without further rollback action.
+		job.State = model.JobStateCancelled
+		return ver, errCancelledDDLJob
+	}
+	// Add constraint has stored constraint info into meta, that means the job has at least
+	// arrived write only state.
+	originalState := constrInfoInMeta.State
+	constrInfoInMeta.State = model.StateWriteOnly
+	job.SchemaState = model.StateWriteOnly
+
+	job.Args = []interface{}{constrInfoInMeta.Name}
+	ver, err = updateVersionAndTableInfo(t, job, tblInfo, originalState != constrInfoInMeta.State)
+	if err != nil {
+		return ver, errors.Trace(err)
+	}
+	return ver, errCancelledDDLJob
+}
+
+func rollingbackDropConstraint(t *meta.Meta, job *model.Job) (ver int64, err error) {
+	tblInfo, constrInfoInMeta, err := checkDropCheckConstraint(t, job)
+	if err != nil {
+		return ver, errors.Trace(err)
+	}
+
+	// StatePublic means when the job is not running yet.
+	if constrInfoInMeta.State == model.StatePublic {
+		job.State = model.JobStateCancelled
+		job.FinishTableJob(model.JobStateRollbackDone, model.StatePublic, ver, tblInfo)
+		return ver, errCancelledDDLJob
+	}
+	// Can not rollback like drop other element, so just continue to drop constraint.
+	job.State = model.JobStateRunning
+	return ver, nil
+}
+
 func rollingbackAddTablePartition(t *meta.Meta, job *model.Job) (ver int64, err error) {
 	_, err = getTableInfoAndCancelFaultJob(t, job, job.SchemaID)
 	if err != nil {
@@ -293,12 +336,17 @@ func convertJob2RollbackJob(w *worker, d *ddlCtx, t *meta.Meta, job *model.Job) 
 		ver, err = rollingbackRenameIndex(t, job)
 	case model.ActionTruncateTable:
 		ver, err = rollingbackTruncateTable(t, job)
+	case model.ActionAddCheckConstraint:
+		ver, err = rollingbackAddConstraint(t, job)
+	case model.ActionDropCheckConstraint:
+		ver, err = rollingbackDropConstraint(t, job)
 	case model.ActionRebaseAutoID, model.ActionShardRowID,
 		model.ActionModifyColumn, model.ActionAddForeignKey,
 		model.ActionDropForeignKey, model.ActionRenameTable,
 		model.ActionModifyTableCharsetAndCollate, model.ActionTruncateTablePartition,
 		model.ActionModifySchemaCharsetAndCollate, model.ActionRepairTable,
-		model.ActionModifyTableAutoIdCache, model.ActionAlterIndexVisibility:
+		model.ActionModifyTableAutoIdCache, model.ActionAlterIndexVisibility,
+		model.ActionAlterCheckConstraint:
 		ver, err = cancelOnlyNotHandledJob(job)
 	default:
 		job.State = model.JobStateCancelled

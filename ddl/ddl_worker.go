@@ -655,6 +655,12 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 		ver, err = onCreateSequence(d, t, job)
 	case model.ActionAlterIndexVisibility:
 		ver, err = onAlterIndexVisibility(t, job)
+	case model.ActionAddCheckConstraint:
+		ver, err = w.onAddCheckConstraint(d, t, job)
+	case model.ActionDropCheckConstraint:
+		ver, err = onDropCheckConstraint(t, job)
+	case model.ActionAlterCheckConstraint:
+		ver, err = w.onAlterCheckConstraint(t, job)
 	default:
 		// Invalid job, cancel it.
 		job.State = model.JobStateCancelled

@@ -206,4 +206,8 @@ var (
 	ErrColumnCheckConstraintReferOther = terror.ClassDDL.New(mysql.ErrColumnCheckConstraintReferOther, mysql.MySQLErrName[mysql.ErrColumnCheckConstraintReferOther])
 	// ErrTableCheckConstraintReferUnknown is returned when create table check constraint referring non-existing column.
 	ErrTableCheckConstraintReferUnknown = terror.ClassDDL.New(mysql.ErrTableCheckConstraintReferUnknown, mysql.MySQLErrName[mysql.ErrTableCheckConstraintReferUnknown])
+	// ErrConstraintDoesNotExist is returned for dropping a non-existent constraint.
+	ErrConstraintDoesNotExist = terror.ClassDDL.New(mysql.ErrConstraintDoesNotExist, mysql.MySQLErrName[mysql.ErrConstraintDoesNotExist])
+	// ErrCheckConstraintIsViolated is returned for violating the a existed check constraint.
+	ErrCheckConstraintIsViolated = terror.ClassDDL.New(mysql.ErrCheckConstraintIsViolated, mysql.MySQLErrName[mysql.ErrCheckConstraintIsViolated])
 )

@@ -2269,6 +2269,10 @@ func (d *ddl) AlterTable(ctx sessionctx.Context, ident ast.Ident, specs []*ast.A
 			err = d.DropIndex(ctx, ident, model.NewCIStr(spec.Name), spec.IfExists)
 		case ast.AlterTableDropPrimaryKey:
 			err = d.DropIndex(ctx, ident, model.NewCIStr(mysql.PrimaryKeyName), spec.IfExists)
+		case ast.AlterTableDropCheck:
+			err = d.DropCheckConstraint(ctx, ident, model.NewCIStr(spec.Constraint.Name))
+		case ast.AlterTableAlterCheck:
+			err = d.AlterCheckConstraint(ctx, ident, model.NewCIStr(spec.Constraint.Name), spec.Constraint.Enforced)
 		case ast.AlterTableRenameIndex:
 			err = d.RenameIndex(ctx, ident, spec)
 		case ast.AlterTableDropPartition:
@@ -2292,6 +2296,8 @@ func (d *ddl) AlterTable(ctx sessionctx.Context, ident ast.Ident, specs []*ast.A
 				err = d.CreatePrimaryKey(ctx, ident, model.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option)
 			case ast.ConstraintFulltext:
 				ctx.GetSessionVars().StmtCtx.AppendWarning(ErrTableCantHandleFt)
+			case ast.ConstraintCheck:
+				err = d.CreateCheckConstraint(ctx, ident, model.NewCIStr(constr.Name), spec.Constraint)
 			default:
 				// Nothing to do now.
 			}
@@ -3854,6 +3860,126 @@ func getAnonymousIndex(t table.Table, colName model.CIStr) model.CIStr {
 		}
 	}
 	return indexName
+}
+
+func (d *ddl) CreateCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constrName model.CIStr, constr *ast.Constraint) error {
+	schema, t, err := d.getSchemaAndTableByIdent(ctx, ti)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if err = checkTooLongConstraint(constrName); err != nil {
+		return errors.Trace(err)
+	}
+
+	if constraintInfo := t.Meta().FindConstraintInfoByName(constrName.L); constraintInfo != nil {
+		return infoschema.ErrCheckConstraintDuplicate.GenWithStackByArgs(constrName.L)
+	}
+
+	// allocate the temporary constraint name for dependency-check-error-output below.
+	constrNames := map[string]bool{}
+	for _, constr := range t.Meta().Constraints {
+		constrNames[constr.Name.L] = true
+	}
+	setEmptyCheckConstraintName(t.Meta().Name.L, constrNames, []*ast.Constraint{constr})
+
+	// existedColsMap can be used to check the existence of depended.
+	existedColsMap := make(map[string]struct{})
+	cols := t.Cols()
+	for _, v := range cols {
+		existedColsMap[v.Name.L] = struct{}{}
+	}
+
+	dependedColsMap := findDependedColsMapInCheckConstraintExpr(constr.Expr)
+	dependedCols := make([]model.CIStr, 0, len(dependedColsMap))
+	for k := range dependedColsMap {
+		if _, ok := existedColsMap[k]; !ok {
+			// The table constraint depended on a non-existed column.
+			return ErrTableCheckConstraintReferUnknown.GenWithStackByArgs(constr.Name, k)
+		}
+		dependedCols = append(dependedCols, model.NewCIStr(k))
+	}
+
+	// build constraint meta info.
+	tblInfo := t.Meta()
+	constraintInfo, err := buildConstraintInfo(tblInfo, dependedCols, constr, model.StateNone)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		SchemaName: schema.Name.L,
+		Type:       model.ActionAddCheckConstraint,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{constraintInfo},
+		Priority:   ctx.GetSessionVars().DDLReorgPriority,
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) DropCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constrName model.CIStr) error {
+	is := d.infoHandle.Get()
+	schema, ok := is.SchemaByName(ti.Schema)
+	if !ok {
+		return errors.Trace(infoschema.ErrDatabaseNotExists)
+	}
+	t, err := is.TableByName(ti.Schema, ti.Name)
+	if err != nil {
+		return errors.Trace(infoschema.ErrTableNotExists.GenWithStackByArgs(ti.Schema, ti.Name))
+	}
+
+	constraintInfo := t.Meta().FindConstraintInfoByName(constrName.L)
+	if constraintInfo == nil {
+		return ErrConstraintDoesNotExist.GenWithStackByArgs(constrName)
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		SchemaName: schema.Name.L,
+		Type:       model.ActionDropCheckConstraint,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{constrName},
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) AlterCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constrName model.CIStr, enforced bool) error {
+	is := d.infoHandle.Get()
+	schema, ok := is.SchemaByName(ti.Schema)
+	if !ok {
+		return errors.Trace(infoschema.ErrDatabaseNotExists)
+	}
+	t, err := is.TableByName(ti.Schema, ti.Name)
+	if err != nil {
+		return errors.Trace(infoschema.ErrTableNotExists.GenWithStackByArgs(ti.Schema, ti.Name))
+	}
+
+	constraintInfo := t.Meta().FindConstraintInfoByName(constrName.L)
+	if constraintInfo == nil {
+		return ErrConstraintDoesNotExist.GenWithStackByArgs(constrName)
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		SchemaName: schema.Name.L,
+		Type:       model.ActionAlterCheckConstraint,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{constrName, enforced},
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
 }
 
 func (d *ddl) CreatePrimaryKey(ctx sessionctx.Context, ti ast.Ident, indexName model.CIStr,
