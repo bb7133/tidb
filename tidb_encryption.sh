@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This script is used to checkout a TiDB PR branch in a forked repo.
+# This script is used to encrypt the compress.
 
 printFunc(){
   echo -e "Usage:\n"
