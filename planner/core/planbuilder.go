@@ -593,7 +593,7 @@ func (b *PlanBuilder) buildSet(ctx context.Context, v *ast.SetStmt) (Plan, error
 	for _, vars := range v.Variables {
 		if vars.IsGlobal {
 			err := ErrSpecificAccessDenied.GenWithStackByArgs("SUPER or SYSTEM_ADMIN")
-			b.visitInfo = appendDynamicVisitInfo(b.visitInfo, "SYSTEM_VARIABLES_ADMIN", false, err)
+			b.visitInfo = appendDynamicVisitInfo(b.visitInfo, "SYSTEM_ADMIN", false, err)
 		}
 		assign := &expression.VarAssignment{
 			Name:     vars.Name,

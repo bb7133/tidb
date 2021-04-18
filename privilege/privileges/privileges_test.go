@@ -1095,9 +1095,9 @@ func (s *testPrivilegeSuite) TestDynamicPrivs(c *C) {
 	se := newSession(c, s.store, s.dbName)
 	c.Assert(se.Auth(&auth.UserIdentity{Username: "notsuper", Hostname: "%"}, nil, nil), IsTrue)
 
-	// test SYSTEM_VARIABLES_ADMIN
+	// test SYSTEM_ADMIN
 	_, err := se.ExecuteInternal(context.Background(), "SET GLOBAL wait_timeout = 86400")
-	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the SUPER or SYSTEM_VARIABLES_ADMIN privilege(s) for this operation")
+	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the SUPER or SYSTEM_ADMIN privilege(s) for this operation")
 	mustExec(c, rootSe, "GRANT SYSTEM_VARIABLES_admin ON *.* TO notsuper")
 	mustExec(c, se, "SET GLOBAL wait_timeout = 86400")
 
@@ -1107,16 +1107,16 @@ func (s *testPrivilegeSuite) TestDynamicPrivs(c *C) {
 	mustExec(c, rootSe, "GRANT ROLE_ADMIN ON *.* TO notsuper")
 	mustExec(c, se, "GRANT anyrolename TO otheruser")
 
-	// revoke SYSTEM_VARIABLES_ADMIN, confirm it is dropped
+	// revoke SYSTEM_ADMIN, confirm it is dropped
 	mustExec(c, rootSe, "REVOKE SYSTEM_VARIABLES_AdmIn ON *.* FROM notsuper")
 	_, err = se.ExecuteInternal(context.Background(), "SET GLOBAL wait_timeout = 86000")
-	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the SUPER or SYSTEM_VARIABLES_ADMIN privilege(s) for this operation")
+	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the SUPER or SYSTEM_ADMIN privilege(s) for this operation")
 
-	// grant super, confirm that it is also a substitute for SYSTEM_VARIABLES_ADMIN
+	// grant super, confirm that it is also a substitute for SYSTEM_ADMIN
 	mustExec(c, rootSe, "GRANT SUPER ON *.* TO notsuper")
 	mustExec(c, se, "SET GLOBAL wait_timeout = 86400")
 
-	// revoke SUPER, assign SYSTEM_VARIABLES_ADMIN to anyrolename.
+	// revoke SUPER, assign SYSTEM_ADMIN to anyrolename.
 	// confirm that a dynamic privilege can be inherited from a role.
 	mustExec(c, rootSe, "REVOKE SUPER ON *.* FROM notsuper")
 	mustExec(c, rootSe, "GRANT SYSTEM_VARIABLES_AdmIn ON *.* TO anyrolename")
@@ -1124,7 +1124,7 @@ func (s *testPrivilegeSuite) TestDynamicPrivs(c *C) {
 
 	// It's not a default role, this should initially fail:
 	_, err = se.ExecuteInternal(context.Background(), "SET GLOBAL wait_timeout = 86400")
-	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the SUPER or SYSTEM_VARIABLES_ADMIN privilege(s) for this operation")
+	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the SUPER or SYSTEM_ADMIN privilege(s) for this operation")
 	mustExec(c, se, "SET ROLE anyrolename")
 	mustExec(c, se, "SET GLOBAL wait_timeout = 87000")
 }
@@ -1135,15 +1135,15 @@ func (s *testPrivilegeSuite) TestDynamicGrantOption(c *C) {
 	mustExec(c, rootSe, "CREATE USER varuser2")
 	mustExec(c, rootSe, "CREATE USER varuser3")
 
-	mustExec(c, rootSe, "GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO varuser1")
-	mustExec(c, rootSe, "GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO varuser2 WITH GRANT OPTION")
+	mustExec(c, rootSe, "GRANT SYSTEM_ADMIN ON *.* TO varuser1")
+	mustExec(c, rootSe, "GRANT SYSTEM_ADMIN ON *.* TO varuser2 WITH GRANT OPTION")
 
 	se1 := newSession(c, s.store, s.dbName)
 	c.Assert(se1.Auth(&auth.UserIdentity{Username: "varuser1", Hostname: "%"}, nil, nil), IsTrue)
-	_, err := se1.ExecuteInternal(context.Background(), "GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO varuser3")
+	_, err := se1.ExecuteInternal(context.Background(), "GRANT SYSTEM_ADMIN ON *.* TO varuser3")
 	c.Assert(err.Error(), Equals, "[planner:1227]Access denied; you need (at least one of) the GRANT OPTION privilege(s) for this operation")
 
 	se2 := newSession(c, s.store, s.dbName)
 	c.Assert(se2.Auth(&auth.UserIdentity{Username: "varuser2", Hostname: "%"}, nil, nil), IsTrue)
-	mustExec(c, se2, "GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO varuser3")
+	mustExec(c, se2, "GRANT SYSTEM_ADMIN ON *.* TO varuser3")
 }

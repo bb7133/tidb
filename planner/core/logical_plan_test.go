@@ -1083,7 +1083,7 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 		{
 			sql: "SET GLOBAL wait_timeout=12345",
 			ans: []visitInfo{
-				{mysql.ExtendedPriv, "", "", "", ErrSpecificAccessDenied, "SYSTEM_VARIABLES_ADMIN", false},
+				{mysql.ExtendedPriv, "", "", "", ErrSpecificAccessDenied, "SYSTEM_ADMIN", false},
 			},
 		},
 		{
