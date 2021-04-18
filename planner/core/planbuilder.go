@@ -592,7 +592,7 @@ func (b *PlanBuilder) buildSet(ctx context.Context, v *ast.SetStmt) (Plan, error
 	p := &Set{}
 	for _, vars := range v.Variables {
 		if vars.IsGlobal {
-			err := ErrSpecificAccessDenied.GenWithStackByArgs("SUPER or SYSTEM_VARIABLES_ADMIN")
+			err := ErrSpecificAccessDenied.GenWithStackByArgs("SUPER or SYSTEM_ADMIN")
 			b.visitInfo = appendDynamicVisitInfo(b.visitInfo, "SYSTEM_VARIABLES_ADMIN", false, err)
 		}
 		assign := &expression.VarAssignment{
@@ -996,8 +996,10 @@ func (b *PlanBuilder) buildAdmin(ctx context.Context, as *ast.AdminStmt) (Plan, 
 	case ast.AdminReloadOptRuleBlacklist:
 		return &ReloadOptRuleBlacklist{}, nil
 	case ast.AdminPluginEnable:
+		b.visitInfo = appendDynamicVisitInfo(b.visitInfo, "AUDIT_ADMIN", false, err)
 		return &AdminPlugins{Action: Enable, Plugins: as.Plugins}, nil
 	case ast.AdminPluginDisable:
+		b.visitInfo = appendDynamicVisitInfo(b.visitInfo, "AUDIT_ADMIN", false, err)
 		return &AdminPlugins{Action: Disable, Plugins: as.Plugins}, nil
 	case ast.AdminFlushBindings:
 		return &SQLBindPlan{SQLBindOp: OpFlushBindings}, nil
@@ -1769,7 +1771,8 @@ func (b *PlanBuilder) buildSimple(node ast.StmtNode) (Plan, error) {
 		err := ErrSpecificAccessDenied.GenWithStack("ALTER INSTANCE")
 		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.SuperPriv, "", "", "", err)
 	case *ast.AlterUserStmt:
-		err := ErrSpecificAccessDenied.GenWithStackByArgs("CREATE USER")
+		err := ErrSpecificAccessDenied.GenWithStackByArgs("CREATE USER or SECURITY_ADMIN")
+		b.visitInfo = appendDynamicVisitInfo(b.visitInfo, "SECURITY_ADMIN", false, err)
 		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.CreateUserPriv, "", "", "", err)
 	case *ast.GrantStmt:
 		if b.ctx.GetSessionVars().CurrentDB == "" && raw.Level.DBName == "" {

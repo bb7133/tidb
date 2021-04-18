@@ -92,8 +92,22 @@ func BuildLogicalPlan(ctx context.Context, sctx sessionctx.Context, node ast.Nod
 	return p, p.OutputNames(), err
 }
 
+func HackForSecurity(activeRoles []*auth.RoleIdentity, pm privilege.Manager, vs []visitInfo) bool {
+	for _, v := range vs {
+		if v.privilege == mysql.GrantPriv {
+			if pm.RequestDynamicVerification(activeRoles, "SECURITY_ADMIN", false) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // CheckPrivilege checks the privilege for a user.
 func CheckPrivilege(activeRoles []*auth.RoleIdentity, pm privilege.Manager, vs []visitInfo) error {
+	if HackForSecurity(activeRoles, pm, vs) {
+		return nil
+	}
 	for _, v := range vs {
 		if v.privilege == mysql.ExtendedPriv {
 			if !pm.RequestDynamicVerification(activeRoles, v.dynamicPriv, v.dynamicWithGrant) {

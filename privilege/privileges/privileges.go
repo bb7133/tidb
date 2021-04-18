@@ -39,7 +39,7 @@ import (
 // SkipWithGrant causes the server to start without using the privilege system at all.
 var SkipWithGrant = false
 var _ privilege.Manager = (*UserPrivileges)(nil)
-var dynamicPrivs = []string{"BACKUP_ADMIN", "SYSTEM_VARIABLES_ADMIN", "ROLE_ADMIN", "CONNECTION_ADMIN"}
+var dynamicPrivs = []string{"BACKUP_ADMIN", "SYSTEM_VARIABLES_ADMIN", "ROLE_ADMIN", "CONNECTION_ADMIN", "SECURITY_ADMIN"}
 var dynamicPrivLock sync.Mutex
 
 // UserPrivileges implements privilege.Manager interface.
