@@ -117,6 +117,9 @@ type Allocator interface {
 	// If allocIDs is false, it will not allocate IDs.
 	Rebase(tableID, newBase int64, allocIDs bool) error
 
+	// Invalidate invalidates the cache for (auto_increment)allocator.
+	Invalidate()
+
 	// RebaseSeq rebases the sequence value in number axis with tableID and the new base value.
 	RebaseSeq(table, newBase int64) (int64, bool, error)
 
@@ -349,6 +352,14 @@ func (alloc *allocator) Rebase(tableID, requiredBase int64, allocIDs bool) error
 		return alloc.rebase4Unsigned(tableID, uint64(requiredBase), allocIDs)
 	}
 	return alloc.rebase4Signed(tableID, requiredBase, allocIDs)
+}
+
+// Invalidate implements autoid.Allocator Invalidate interface.
+func (alloc *allocator) Invalidate() {
+	alloc.mu.Lock()
+	alloc.base = 0
+	alloc.end = 0
+	alloc.mu.Unlock()
 }
 
 // Rebase implements autoid.Allocator RebaseSeq interface.

@@ -136,6 +136,10 @@ func (s *Server) startHTTPServer() {
 	// HTTP path for get table tiflash replica info.
 	router.Handle("/tiflash/replica", flashReplicaHandler{tikvHandlerTool})
 
+	// HTTP path to invalid auto ids.
+	// router.PathPrefix("/invalid_ids/").Handle("/invalid_ids", invalidIdHandler{tikvHandlerTool})
+	router.PathPrefix("/invalid_ids/").Handler(invalidIdHandler{tikvHandlerTool})
+
 	if s.cfg.Store == "tikv" {
 		// HTTP path for tikv.
 		router.Handle("/tables/{db}/{table}/regions", tableHandler{tikvHandlerTool, opTableRegions})
