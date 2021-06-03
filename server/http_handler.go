@@ -23,6 +23,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -366,6 +367,11 @@ type binlogRecover struct{}
 
 // schemaHandler is the handler for list database or table schemas.
 type schemaHandler struct {
+	*tikvHandlerTool
+}
+
+// invalidIdHandler is the handler to invalid auto ID allocators.
+type invalidIdHandler struct {
 	*tikvHandlerTool
 }
 
@@ -969,6 +975,84 @@ func (h schemaHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// all databases' schemas
 	writeData(w, schema.AllSchemas())
+}
+
+// ServeHTTP handles request of invalid_ids.
+func (h invalidIdHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	schema, err := h.schema()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	// parse params
+	params := mux.Vars(req)
+	dbPattern := params["dbPattern"]
+	tblPattern, ok := params["tblPattern"]
+	if !ok {
+		tblPattern = ".*"
+	}
+	tbls, err := findAllAutoIncrTables(schema, dbPattern, tblPattern)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	autoIncrTables := make([]*model.TableInfo, 0)
+	for _, table := range tbls {
+		if table.GetAutoIncrementColInfo() != nil {
+			autoIncrTables = append(autoIncrTables, table)
+		}
+	}
+	for _, table := range autoIncrTables {
+		allocs, _ := schema.AllocByID(table.ID)
+		for _, alloc := range allocs {
+			alloc.Invalidate()
+		}
+	}
+	getDesc := func(tbls []*model.TableInfo) string {
+		names := make([]string, len(tbls))
+		if len(tbls) == 0 {
+			return "Empty"
+		}
+		for i, tbl := range tbls {
+			db, ok := schema.SchemaByTable(tbl)
+			if !ok {
+				names[i] = fmt.Sprintf("?.%s", tbl.Name)
+			} else {
+				names[i] = fmt.Sprintf("%s.%s", db.Name, tbl.Name)
+			}
+		}
+		return strings.Join(names, ",")
+	}
+	msg := make(map[string]string)
+	msg["Schema Version"] = fmt.Sprintf("%d", schema.SchemaMetaVersion())
+	msg["Matched Tables"] = getDesc(tbls)
+	msg["Invalidated Tables(with auto_increment column)"] = getDesc(autoIncrTables)
+	writeData(w, msg)
+}
+
+func findAllAutoIncrTables(schema infoschema.InfoSchema, dbPattern string, tblPattern string) ([]*model.TableInfo, error) {
+	result := make([]*model.TableInfo, 0)
+	dbRe, err := regexp.Compile(dbPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	tblRe, err := regexp.Compile(tblPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, schema := range schema.AllSchemas() {
+		if !dbRe.MatchString(schema.Name.O) {
+			continue
+		}
+		for _, tbl := range schema.Tables {
+			if tblRe.MatchString(tbl.Name.O) {
+				result = append(result, tbl)
+			}
+		}
+	}
+	return result, nil
 }
 
 // ServeHTTP handles table related requests, such as table's region information, disk usage.
