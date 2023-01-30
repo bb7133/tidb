@@ -671,18 +671,23 @@ func (e *memtableRetriever) setDataFromTables(ctx context.Context, sctx sessionc
 			}
 			createTime := types.NewTime(types.FromGoTime(table.GetUpdateTime().In(loc)), createTimeTp, types.DefaultFsp)
 
-			createOptions := ""
+			createOptionsStr := ""
 
 			if checker != nil && !checker.RequestVerification(sctx.GetSessionVars().ActiveRoles, schema.Name.L, table.Name.L, "", mysql.AllPrivMask) {
 				continue
 			}
 			pkType := "NONCLUSTERED"
 			if !table.IsView() {
-				if table.GetPartitionInfo() != nil {
-					createOptions = "partitioned"
-				} else if table.TableCacheStatusType == model.TableCacheStatusEnable {
-					createOptions = "cached=on"
+				var createOptions []string
+				if table.TableEncryption {
+					createOptions = append(createOptions, "ENCRYPTION='Y'")
 				}
+				if table.GetPartitionInfo() != nil {
+					createOptions = append(createOptions, "partitioned")
+				} else if table.TableCacheStatusType == model.TableCacheStatusEnable {
+					createOptions = append(createOptions, "cached=on")
+				}
+				createOptionsStr = strings.Join(createOptions, " ")
 				var autoIncID interface{}
 				hasAutoIncID, _ := infoschema.HasAutoIncrementColumn(table)
 				if hasAutoIncID {
@@ -746,7 +751,7 @@ func (e *memtableRetriever) setDataFromTables(ctx context.Context, sctx sessionc
 					nil,                   // CHECK_TIME
 					collation,             // TABLE_COLLATION
 					nil,                   // CHECKSUM
-					createOptions,         // CREATE_OPTIONS
+					createOptionsStr,      // CREATE_OPTIONS
 					table.Comment,         // TABLE_COMMENT
 					table.ID,              // TIDB_TABLE_ID
 					shardingInfo,          // TIDB_ROW_ID_SHARDING_INFO
