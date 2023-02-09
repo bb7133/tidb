@@ -928,6 +928,7 @@ var MySQLErrName = map[uint16]*mysql.ErrMessage{
 	ErrCheckConstraintClauseUsingFKReferActionColumn:         mysql.Message("Column '%s' cannot be used in a check constraint '%s': needed in a foreign key constraint '%s' referential action.", nil),
 	ErrUnsupportedConstraintCheck:                            mysql.Message("%s is not supported", nil),
 	ErrDynamicPrivilegeNotRegistered:                         mysql.Message("Dynamic privilege '%s' is not registered with the server.", nil),
+	ErrConstraintNotFound:                                    mysql.Message("Constraint '%s' does not exist.", nil),
 	ErrIllegalPrivilegeLevel:                                 mysql.Message("Illegal privilege level specified for %s", nil),
 	ErrCTERecursiveRequiresUnion:                             mysql.Message("Recursive Common Table Expression '%s' should contain a UNION", nil),
 	ErrCTERecursiveRequiresNonRecursiveFirst:                 mysql.Message("Recursive Common Table Expression '%s' should have one or more non-recursive query blocks followed by one or more recursive ones", nil),

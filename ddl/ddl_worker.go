@@ -1304,6 +1304,12 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 		ver, err = onTTLInfoRemove(d, t, job)
 	case model.ActionAlterEncryptionOption:
 		ver, err = onModifyTableEncryptionOption(d, t, job)
+	case model.ActionAddCheckConstraint:
+		ver, err = w.onAddCheckConstraint(d, t, job)
+	case model.ActionDropCheckConstraint:
+		ver, err = onDropCheckConstraint(d, t, job)
+	case model.ActionAlterCheckConstraint:
+		ver, err = w.onAlterCheckConstraint(d, t, job)
 	default:
 		// Invalid job, cancel it.
 		job.State = model.JobStateCancelled
