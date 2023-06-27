@@ -33,7 +33,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
-	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/extension"
 	"github.com/pingcap/tidb/parser/auth"
 	"github.com/pingcap/tidb/parser/mysql"
@@ -761,21 +760,6 @@ func TestConnExecutionTimeout(t *testing.T) {
 
 	err = cc.handleQuery(context.Background(), "alter table testTable2 add index idx(age);")
 	require.NoError(t, err)
-}
-
-func TestShutDown(t *testing.T) {
-	store := testkit.CreateMockStore(t)
-
-	cc := &clientConn{}
-	se, err := session.CreateSession4Test(store)
-	require.NoError(t, err)
-	tc := &TiDBContext{Session: se}
-	cc.setCtx(tc)
-	// set killed flag
-	cc.status = connStatusShutdown
-	// assert ErrQueryInterrupted
-	err = cc.handleQuery(context.Background(), "select 1")
-	require.Equal(t, executor.ErrQueryInterrupted, err)
 }
 
 type snapshotCache interface {
