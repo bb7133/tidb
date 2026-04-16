@@ -965,7 +965,13 @@ func evaluateExprWithNullInNullRejectCheck(ctx BuildContext, schema *Schema, exp
 
 // TableInfo2SchemaAndNames converts the TableInfo to the schema and name slice.
 func TableInfo2SchemaAndNames(ctx BuildContext, dbName model.CIStr, tbl *model.TableInfo) (*Schema, []*types.FieldName, error) {
-	cols, names, err := ColumnInfos2ColumnsAndNames(ctx, dbName, tbl.Name, tbl.Cols(), tbl)
+	return TableInfo2SchemaAndNamesWithVirtualExpr(ctx, dbName, tbl, true)
+}
+
+// TableInfo2SchemaAndNamesWithVirtualExpr converts the TableInfo to the Schema and NameSlice.
+// When resolveVirtualGenerated is false, virtual generated column expressions are not eagerly parsed/built.
+func TableInfo2SchemaAndNamesWithVirtualExpr(ctx BuildContext, dbName model.CIStr, tbl *model.TableInfo, resolveVirtualGenerated bool) (*Schema, []*types.FieldName, error) {
+	cols, names, err := ColumnInfos2ColumnsAndNamesWithVirtualExpr(ctx, dbName, tbl.Name, tbl.Cols(), tbl, resolveVirtualGenerated)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1014,6 +1020,12 @@ func TableInfo2SchemaAndNames(ctx BuildContext, dbName model.CIStr, tbl *model.T
 // This function is **unsafe** to be called concurrently, unless the `IgnoreTruncate` has been set to `true`. The only
 // known case which will call this function concurrently is `CheckTableExec`. Ref #18408 and #42341.
 func ColumnInfos2ColumnsAndNames(ctx BuildContext, dbName, tblName model.CIStr, colInfos []*model.ColumnInfo, tblInfo *model.TableInfo) ([]*Column, types.NameSlice, error) {
+	return ColumnInfos2ColumnsAndNamesWithVirtualExpr(ctx, dbName, tblName, colInfos, tblInfo, true)
+}
+
+// ColumnInfos2ColumnsAndNamesWithVirtualExpr converts the ColumnInfo to the *Column and NameSlice.
+// When resolveVirtualGenerated is false, virtual generated column expressions are not eagerly parsed/built.
+func ColumnInfos2ColumnsAndNamesWithVirtualExpr(ctx BuildContext, dbName, tblName model.CIStr, colInfos []*model.ColumnInfo, tblInfo *model.TableInfo, resolveVirtualGenerated bool) ([]*Column, types.NameSlice, error) {
 	columns := make([]*Column, 0, len(colInfos))
 	names := make([]*types.FieldName, 0, len(colInfos))
 	for i, col := range colInfos {
@@ -1034,6 +1046,10 @@ func ColumnInfos2ColumnsAndNames(ctx BuildContext, dbName, tblName model.CIStr, 
 		}
 		columns = append(columns, newCol)
 	}
+	if !resolveVirtualGenerated {
+		return columns, names, nil
+	}
+
 	// Resolve virtual generated column.
 	mockSchema := NewSchema(columns...)
 	// Ignore redundant warning here.

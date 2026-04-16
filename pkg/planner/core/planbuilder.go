@@ -3637,7 +3637,8 @@ func (b *PlanBuilder) buildInsert(ctx context.Context, insert *ast.InsertStmt) (
 		return nil, err
 	}
 	// Build Schema with DBName otherwise ColumnRef with DBName cannot match any Column in Schema.
-	schema, names, err := expression.TableInfo2SchemaAndNames(b.ctx.GetExprCtx(), tn.Schema, tableInfo)
+	// Avoid eagerly parsing/building virtual generated expressions here; INSERT resolves generated columns later.
+	schema, names, err := expression.TableInfo2SchemaAndNamesWithVirtualExpr(b.ctx.GetExprCtx(), tn.Schema, tableInfo, false)
 	if err != nil {
 		return nil, err
 	}
